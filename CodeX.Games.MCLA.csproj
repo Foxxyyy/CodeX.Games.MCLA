@@ -1,0 +1,26 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net7.0-windows</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>disable</Nullable>
+    <Platforms>AnyCPU;x86</Platforms>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Ionic.Zlib" Version="1.9.1.5" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\CodeX-026\CodeX-main\CodeX.Core\CodeX.Core.csproj" />
+    <ProjectReference Include="..\..\CodeX-026\CodeX-main\CodeX.Games.GTA4\CodeX.Games.GTA4.csproj" />
+    <ProjectReference Include="..\..\CodeX-026\CodeX-main\CodeX.Games.MP3\CodeX.Games.MP3.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Update="Codex.Games.MCLA.strings.txt">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+  </ItemGroup>
+
+</Project>
