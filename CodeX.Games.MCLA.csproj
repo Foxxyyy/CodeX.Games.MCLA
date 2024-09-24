@@ -13,7 +13,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\CodeX-026\CodeX-main\CodeX.Core\CodeX.Core.csproj" />
-    <ProjectReference Include="..\..\CodeX-026\CodeX-main\CodeX.Games.GTA4\CodeX.Games.GTA4.csproj" />
+    <ProjectReference Include="..\..\CodeX-026\CodeX-main\CodeX.Forms\CodeX.Forms.csproj" />
     <ProjectReference Include="..\..\CodeX-026\CodeX-main\CodeX.Games.MP3\CodeX.Games.MP3.csproj" />
   </ItemGroup>
 

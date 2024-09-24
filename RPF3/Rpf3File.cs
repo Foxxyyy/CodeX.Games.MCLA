@@ -1,16 +1,13 @@
-﻿using CodeX.Core.Engine;
+﻿using Ionic.Zlib;
+using CodeX.Core.Engine;
 using CodeX.Core.Utilities;
+using static CodeX.Games.MCLA.RPF3.Rpf3Crypto;
 using TC = System.ComponentModel.TypeConverterAttribute;
 using EXP = System.ComponentModel.ExpandableObjectConverter;
-using static CodeX.Games.MCLA.RPF3.Rpf3Crypto;
-using System.IO.Compression;
-using Ionic.Zlib;
-using System.Diagnostics;
 
 namespace CodeX.Games.MCLA.RPF3
 {
-    [TC(typeof(EXP))]
-    public class Rpf3File : GameArchive
+    [TC(typeof(EXP))] public class Rpf3File : GameArchive
     {
         public long StartPos { get; set; }
         public uint Version { get; set; } = 0x33465052; //Identifier, MCLA = 0x33465052 (860246098)
@@ -926,8 +923,7 @@ namespace CodeX.Games.MCLA.RPF3
         }
     }
 
-    [TC(typeof(EXP))]
-    public abstract class Rpf3FileEntry : Rpf3Entry, GameArchiveFileInfo
+    [TC(typeof(EXP))] public abstract class Rpf3FileEntry : Rpf3Entry, GameArchiveFileInfo
     {
         public bool IsArchive { get => NameLower?.EndsWith(".rpf") ?? false; }
         public int SizeInArchive { get; set; }
@@ -997,8 +993,8 @@ namespace CodeX.Games.MCLA.RPF3
                     case Rpf3ResourceType.Fragment:
                         Name += ".xft";
                         break;
-                    case Rpf3ResourceType.CityMap:
-                        Name += ".citymap";
+                    case Rpf3ResourceType.BitMap:
+                        Name += ".xshp";
                         break;
                     case Rpf3ResourceType.Animation:
                         Name += ".xbtm";
@@ -1062,10 +1058,7 @@ namespace CodeX.Games.MCLA.RPF3
 
             var unk = br.ReadUInt32();
             var len = br.ReadInt32();
-            byte[] numArray = br.ReadBytes((int)(br.Length - br.Position));
-
-            using var dr = new DataReader(new MemoryStream(numArray));
-            byte[] data = dr.ReadBytes((int)dr.Length);
+            byte[] data = br.ReadBytes(len);
             int dLen = GetPhysicalSize() + GetVirtualSize();
             return BufferUtil.DecompressLZX(data, dLen);
         }
@@ -1079,8 +1072,8 @@ namespace CodeX.Games.MCLA.RPF3
     public enum Rpf3ResourceType
     {
         None = 0,
-        CityMap = 1,
-        Animation,//animations
+        BitMap = 1, //xshp
+        Animation,
         Texture = 9, //xtd
         Flash = 27, //xsf
         Fragment = 63, //xft
@@ -1088,13 +1081,6 @@ namespace CodeX.Games.MCLA.RPF3
         //xst, stringtable
         //xapk, animations
         //?? = 102, meshes
-        //xmat?
-        //xrpt?
-        //xstc?
-        //xstr?
         //xprp? //also in rdr1
-        //xcxt
-        //xthd?
-        //xach?
     }
 }

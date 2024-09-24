@@ -282,7 +282,10 @@ namespace CodeX.Games.MCLA.RSC5
 
         public T ReadBlock<T>(ulong position, Func<Rsc5DataReader, T> createFunc = null) where T : Rsc5Block, new()
         {
-            if (position == 0) return default(T);
+            if (position == 0 || position == 0xCDCDCDCD)
+            {
+                return default;
+            }
             var p = Position;
             Position = position;
             var b = ReadBlock<T>(createFunc);
@@ -602,12 +605,12 @@ namespace CodeX.Games.MCLA.RSC5
         public void Read(Rsc5DataReader reader, Func<Rsc5DataReader, T> createFunc = null)
         {
             Position = reader.ReadUInt32();
-            Item = reader.ReadBlock<T>(Position, createFunc);
+            Item = reader.ReadBlock(Position, createFunc);
         }
 
         public void ReadItem(Rsc5DataReader reader, Func<Rsc5DataReader, T> createFunc = null)
         {
-            Item = reader.ReadBlock<T>(Position, createFunc);
+            Item = reader.ReadBlock(Position, createFunc);
         }
 
         public void Write(Rsc5DataWriter writer)

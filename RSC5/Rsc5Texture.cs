@@ -2,7 +2,6 @@
 using CodeX.Core.Utilities;
 using CodeX.Games.MCLA.RPF3;
 using SharpDX.Direct3D11;
-using System.Drawing;
 
 namespace CodeX.Games.MCLA.RSC5
 {
@@ -36,6 +35,30 @@ namespace CodeX.Games.MCLA.RSC5
         }
     }
 
+    public class Rsc5Bitmap : Rsc5FileBase
+    {
+        public override ulong BlockLength => 16;
+        public Rsc5Ptr<Rsc5BlockMap> BlockMapPointer { get; set; }
+        public Rsc5Ptr<Rsc5Texture> Texture1 { get; set; }
+        public Rsc5Ptr<Rsc5Texture> Texture2 { get; set; }
+
+        public override void Read(Rsc5DataReader reader)
+        {
+            base.Read(reader);
+            BlockMapPointer = reader.ReadPtr<Rsc5BlockMap>();
+            Texture1 = reader.ReadPtr<Rsc5Texture>();
+            Texture2 = reader.ReadPtr<Rsc5Texture>();
+        }
+
+        public override void Write(Rsc5DataWriter writer)
+        {
+            base.Write(writer);
+            writer.WritePtr(BlockMapPointer);
+            writer.WritePtr(Texture1);
+            writer.WritePtr(Texture2);
+        }
+    }
+
     public class Rsc5Texture : Rsc5TextureBase
     {
         public override ulong BlockLength => 80;
@@ -46,8 +69,6 @@ namespace CodeX.Games.MCLA.RSC5
         public float ColorOfsR { get; set; } = 0.0f; //m_ColorOfsR
         public float ColorOfsG { get; set; } = 0.0f; //m_ColorOfsG
         public float ColorOfsB { get; set; } = 0.0f; //m_ColorOfsB
-        public uint PrevTextureOffset { get; set; }
-        public uint NextTextureOffset { get; set; }
         public int Size { get; set; }
 
         public override void Read(Rsc5DataReader reader)
@@ -62,8 +83,6 @@ namespace CodeX.Games.MCLA.RSC5
             ColorOfsR = reader.ReadSingle(); //0.0f
             ColorOfsG = reader.ReadSingle(); //0.0f
             ColorOfsB = reader.ReadSingle(); //0.0f
-            PrevTextureOffset = reader.ReadUInt32();
-            NextTextureOffset = reader.ReadUInt32();
 
             reader.Position = D3DBaseTexture.Item.FilePosition + 0x20;
             var d3dValue = reader.ReadInt32();
@@ -72,13 +91,26 @@ namespace CodeX.Games.MCLA.RSC5
             var virtualH = GetVirtualSize(Height);
 
             if ((baseAdress & Rpf3Crypto.VIRTUAL_BASE) == Rpf3Crypto.VIRTUAL_BASE)
+            {
                 baseAdress &= 0x0FFFFFFF;
-            if ((baseAdress & Rpf3Crypto.PHYSICAL_BASE) == Rpf3Crypto.PHYSICAL_BASE)
-                baseAdress = (baseAdress & 0x1FFFFFFF) + reader.VirtualSize;
+                reader.Position = (ulong)(baseAdress + Rpf3Crypto.VIRTUAL_BASE);
+            }
+            if ((d3dValue & Rpf3Crypto.PHYSICAL_BASE) == Rpf3Crypto.PHYSICAL_BASE)
+            {
+                var size = d3dValue & 0xFF;
+                reader.Position = (ulong)((d3dValue & 0xFFFFFF) - size + Rpf3Crypto.VIRTUAL_BASE);
+            }
             else
+            {
                 baseAdress = reader.VirtualSize;
+                reader.Position = (ulong)(baseAdress + Rpf3Crypto.VIRTUAL_BASE);
+            }
 
-            reader.Position = (ulong)(baseAdress + Rpf3Crypto.VIRTUAL_BASE);
+            if (reader.Position == Rpf3Crypto.VIRTUAL_BASE)
+            {
+                reader.Position += (ulong)reader.VirtualSize;
+            }
+
             Format = ConvertToEngineFormat((Rsc5TextureFormat)(d3dValue & byte.MaxValue));
             Size = CalcDataSize(virtualW, virtualH);
             Data = reader.ReadBytes(Size);

@@ -26,6 +26,8 @@ navsys_target
 legals
 prompt
 thumb
+whl_stk_nsn_gtr_08.xtp
+whl_stk_nsn_gtr_08
 40_mr_vp_lam_murcielago_06.xtd
 16_mr_vp_duc_monster_s4r_07.xtd
 10_mr_vp_dge_challenger_70.xtd

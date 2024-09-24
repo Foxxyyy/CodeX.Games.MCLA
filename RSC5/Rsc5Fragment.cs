@@ -1,7 +1,4 @@
-﻿using CodeX.Core.Engine;
-using CodeX.Games.GTA4.RSC5;
-
-namespace CodeX.Games.MCLA.RSC5
+﻿namespace CodeX.Games.MCLA.RSC5
 {
     public class Rsc5Fragment<T> : Rsc5FileBase where T : Rsc5DrawableBase, new()
     {

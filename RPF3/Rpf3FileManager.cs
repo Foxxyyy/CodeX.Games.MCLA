@@ -1,6 +1,5 @@
 ﻿using CodeX.Core.Engine;
 using CodeX.Core.Utilities;
-using CodeX.Games.GTA4.IMG3;
 using CodeX.Games.MCLA.Files;
 using System.Text;
 
@@ -23,11 +22,11 @@ namespace CodeX.Games.MCLA.RPF3
             InitFileType(".gxt2", "Global Text Table", FileTypeIcon.TextFile, FileTypeAction.ViewText);
             InitFileType(".sps", "Shader Preset", FileTypeIcon.TextFile, FileTypeAction.ViewText);
             InitFileType(".ugc", "User-Generated Content", FileTypeIcon.TextFile, FileTypeAction.ViewText);
-            InitFileType(".pso", "Metadata (PSO)", FileTypeIcon.XmlFile, FileTypeAction.ViewXml, true);
-            InitFileType(".xnd", "Path Nodes", FileTypeIcon.LinkFile, FileTypeAction.ViewModels, true);
-            InitFileType(".xnv", "Nav Mesh", FileTypeIcon.SystemFile, FileTypeAction.ViewModels, true);
-            InitFileType(".xvr", "Vehicle Record", FileTypeIcon.SystemFile, FileTypeAction.ViewModels, true);
-            InitFileType(".fxc", "Compiled Shaders", FileTypeIcon.SystemFile, FileTypeAction.ViewXml, true, true);
+            InitFileType(".pso", "Metadata (PSO)", FileTypeIcon.XmlFile, FileTypeAction.ViewXml);
+            InitFileType(".xnd", "Path Nodes", FileTypeIcon.LinkFile, FileTypeAction.ViewModels);
+            InitFileType(".xnv", "Nav Mesh", FileTypeIcon.SystemFile, FileTypeAction.ViewModels);
+            InitFileType(".xvr", "Vehicle Record", FileTypeIcon.SystemFile, FileTypeAction.ViewModels);
+            InitFileType(".fxc", "Compiled Shaders", FileTypeIcon.SystemFile, FileTypeAction.ViewXml);
             InitFileType(".xed", "Expression Dictionary", FileTypeIcon.SystemFile, FileTypeAction.ViewXml, true);
             InitFileType(".xld", "Cloth Dictionary", FileTypeIcon.SystemFile, FileTypeAction.ViewXml, true, true);
             InitFileType(".xapb", "Fragment", FileTypeIcon.Piece, FileTypeAction.ViewModels, true, true);
@@ -41,7 +40,7 @@ namespace CodeX.Games.MCLA.RPF3
             InitFileType(".xbd", "Collision Dictionary", FileTypeIcon.Collisions, FileTypeAction.ViewModels, true);
             InitFileType(".ide", "Item Definitions", FileTypeIcon.Library, FileTypeAction.ViewText);
             InitFileType(".ipl", "Item Placements", FileTypeIcon.Process, FileTypeAction.ViewText);
-            InitFileType(".awc", "Audio Wave Container", FileTypeIcon.Audio, FileTypeAction.ViewAudio, true, true);
+            InitFileType(".awc", "Audio Wave Container", FileTypeIcon.Audio, FileTypeAction.ViewAudio);
             InitFileType(".rel", "Audio Data (REL)", FileTypeIcon.AudioPlayback, FileTypeAction.ViewAudio, true);
             InitFileType(".nametable", "Name Table", FileTypeIcon.TextFile, FileTypeAction.ViewText);
             InitFileType(".xpdb", "Pose Matcher Database", FileTypeIcon.SystemFile, FileTypeAction.ViewXml, true);
@@ -49,6 +48,7 @@ namespace CodeX.Games.MCLA.RPF3
             InitFileType(".xat", "Action Tree", FileTypeIcon.Animation, FileTypeAction.ViewHex, false);
             InitFileType(".xpfl", "Particle Effects Library", FileTypeIcon.Animation, FileTypeAction.ViewHex, false);
             InitFileType(".xsd", "XSD File", FileTypeIcon.Library, FileTypeAction.ViewXml, false);
+            InitFileType(".xshp", "BitMap Texture", FileTypeIcon.Image, FileTypeAction.ViewTextures);
 
             InitFileType(".ppp", "Post-Processing Pipeline", FileTypeIcon.TextFile, FileTypeAction.ViewText, false);
             InitFileType(".mccp", "Midnight Club Checkpoint", FileTypeIcon.TextFile, FileTypeAction.ViewText, false);
@@ -67,8 +67,6 @@ namespace CodeX.Games.MCLA.RPF3
             InitFileType(".grid", "GRID File", FileTypeIcon.TextFile, FileTypeAction.ViewText, false);
             InitFileType(".aogrid", "AOGRID File", FileTypeIcon.TextFile, FileTypeAction.ViewText, false);
             InitFileType(".career", "CAREER File", FileTypeIcon.TextFile, FileTypeAction.ViewText, false);
-
-            InitFileType(".citymap", "MESH File", FileTypeIcon.Piece, FileTypeAction.ViewModels, true, true); //Wrong
         }
 
         public override void InitCreateInfos()
@@ -245,7 +243,7 @@ namespace CodeX.Games.MCLA.RPF3
             }
 
             var fmtext = "";
-            if (file is Img3FileEntry fe)
+            if (file is Rpf3FileEntry fe)
             {
                 //TODO: determine actual metadata file format!
                 fmtext = ".pso";
@@ -298,6 +296,12 @@ namespace CodeX.Games.MCLA.RPF3
                 xtd.Load(data);
                 return xtd;
             }
+            if (entry.NameLower.EndsWith(".xshp"))
+            {
+                var xshp = new XshpFile(entry);
+                xshp.Load(data);
+                return xshp;
+            }
             return null;
         }
 
@@ -320,12 +324,6 @@ namespace CodeX.Games.MCLA.RPF3
                 var xft = new XftFile(entry);
                 xft.Load(data);
                 return xft;
-            }
-            if (entry.NameLower.EndsWith(".citymap") && data[0] == 0x10 && data[1] == 0xB7)
-            {
-                var map = new MapFile(entry);
-                map.Load(data);
-                return map;
             }
             return null;
         }
