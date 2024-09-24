@@ -25,7 +25,8 @@ After that, [download the files](https://github.com/Foxxyyy/CodeX.Games.RDR1/rel
 * Western
 
 # Credits for this project
-* Mars (Im Foxxyyy)                             
+* Mars (Im Foxxyyy) 
+* Noxis    
 * Sockstress                    
 * LennyH (BadassBaboon)                                     
 * CabooseSayzWTF             
