@@ -29,7 +29,7 @@ namespace CodeX.Games.MCLA.RPF3
             InitFileType(".fxc", "Compiled Shaders", FileTypeIcon.SystemFile, FileTypeAction.ViewXml);
             InitFileType(".xed", "Expression Dictionary", FileTypeIcon.SystemFile, FileTypeAction.ViewXml, true);
             InitFileType(".xld", "Cloth Dictionary", FileTypeIcon.SystemFile, FileTypeAction.ViewXml, true, true);
-            InitFileType(".xapb", "Fragment", FileTypeIcon.Piece, FileTypeAction.ViewModels, true, true);
+            InitFileType(".xapb", "Ambient Ped", FileTypeIcon.Piece, FileTypeAction.ViewModels, true, true);
             InitFileType(".xft", "Fragment", FileTypeIcon.Piece, FileTypeAction.ViewModels, true, true);
             InitFileType(".xdd", "Drawable Dictionary", FileTypeIcon.Level, FileTypeAction.ViewModels, true, true);
             InitFileType(".cut", "Cutscene", FileTypeIcon.Level, FileTypeAction.ViewXml, true);

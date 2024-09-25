@@ -178,67 +178,68 @@ namespace CodeX.Games.MCLA.RSC5
 
         public new Vector3 ReadVector3()
         {
-            Vector3 vector = BufferUtil.ReadVector3(Data, GetDataOffset());
-            Position += 12UL;
-            return Rpf3Crypto.Swap(vector);
-        }
-
-        public new Vector3 ReadVector3(ulong position)
-        {
-            ulong position1 = Position;
-            Position = position;
-            Vector3 vector = ReadVector3();
-            Position = position1;
-            return Rpf3Crypto.Swap(vector);
+            var v = BufferUtil.ReadVector3(Data, GetDataOffset());
+            Position += 12;
+            return new Vector3(v.Z, v.X, v.Y);
         }
 
         public Vector3[] ReadVector3Arr(int count)
         {
-            Vector3[] vector3Array = new Vector3[count];
-            for (int index = 0; index < count; ++index)
+            var vectors = new Vector3[count];
+            for (int i = 0; i < count; i++)
             {
-                vector3Array[index] = Rpf3Crypto.Swap(BufferUtil.ReadVector3(Data, GetDataOffset()));
-                Position += 12UL;
+                vectors[i] = ReadVector3();
             }
-            return vector3Array;
+            return vectors;
         }
 
-        public Vector4 ReadVector4(bool toZXYW = false)
+        public Vector4 ReadVector4(bool toZXYW = true)
         {
-            Vector4 vector = BufferUtil.ReadVector4(Data, GetDataOffset());
-            Position += 16UL;
-            if (toZXYW)
+            var v = BufferUtil.ReadVector4(Data, GetDataOffset());
+            Position += 16;
+
+            if (float.IsNaN(v.W))
             {
-                vector = new Vector4(vector.Z, vector.X, vector.Y, vector.W);
+                v = new Vector4(v.XYZ(), 0.0f);
             }
-            return Rpf3Crypto.Swap(vector);
+            return toZXYW ? new Vector4(v.Z, v.X, v.Y, v.W) : v;
         }
 
-        public new Vector4 ReadVector4(ulong position)
+        public Vector4[] ReadVector4Arr(int count, bool toZXYW = true)
         {
-            ulong position1 = Position;
-            Position = position;
-            Vector4 vector = ReadVector4();
-            Position = position1;
-            return Rpf3Crypto.Swap(vector);
+            var vectors = new Vector4[count];
+            for (int i = 0; i < count; i++)
+            {
+                vectors[i] = ReadVector4(toZXYW);
+            }
+            return vectors;
         }
 
-        public Vector4[] ReadVector4Arr(int count)
+        public new Matrix4x4 ReadMatrix4x4()
         {
-            Vector4[] vector4Array = new Vector4[count];
-            for (int index = 0; index < count; ++index)
-                vector4Array[index] = ReadVector4(true);
-            return vector4Array;
+            var matrix = BufferUtil.ReadMatrix4x4(Data, GetDataOffset());
+            Position += 64;
+
+            if (float.IsNaN(matrix.M14))
+                matrix.M14 = 0.0f;
+            if (float.IsNaN(matrix.M24))
+                matrix.M24 = 0.0f;
+            if (float.IsNaN(matrix.M34))
+                matrix.M34 = 0.0f;
+            if (float.IsNaN(matrix.M44))
+                matrix.M44 = 0.0f;
+            return Rpf3Crypto.ToZXY(matrix);
         }
 
         public BoundingBox4 ReadBoundingBox4()
         {
-            BoundingBox4 boundingBox4 = new BoundingBox4();
-            boundingBox4.Min = Rpf3Crypto.Swap(BufferUtil.ReadVector4(Data, GetDataOffset()));
-            Position += 16UL;
-            boundingBox4.Max = Rpf3Crypto.Swap(BufferUtil.ReadVector4(Data, GetDataOffset()));
-            Position += 16UL;
-            return boundingBox4;
+            var bb = new BoundingBox4
+            {
+                Min = BufferUtil.ReadVector4(Data, GetDataOffset()),
+                Max = BufferUtil.ReadVector4(Data, GetDataOffset())
+            };
+            Position += 32;
+            return Rpf3Crypto.ToZXY(bb);
         }
 
         public ushort[] ReadUInt16Arr(int count)

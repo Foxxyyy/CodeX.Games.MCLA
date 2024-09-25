@@ -1,6 +1,6 @@
 ﻿namespace CodeX.Games.MCLA.RSC5
 {
-    public class Rsc5Fragment<T> : Rsc5FileBase where T : Rsc5DrawableBase, new()
+    public class Rsc5Fragment<T> : Rsc5FileBase where T : Rsc5SimpleDrawableBase, new()
     {
         public override ulong BlockLength => 64;
         public Rsc5Ptr<Rsc5BlockMap> BlockMapPointer { get; set; }

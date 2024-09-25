@@ -1,5 +1,4 @@
 ﻿using CodeX.Core.Engine;
-using CodeX.Core.Utilities;
 using CodeX.Games.MCLA.RPF3;
 using SharpDX.Direct3D11;
 
@@ -90,12 +89,12 @@ namespace CodeX.Games.MCLA.RSC5
             var virtualW = GetVirtualSize(Width);
             var virtualH = GetVirtualSize(Height);
 
-            if ((baseAdress & Rpf3Crypto.VIRTUAL_BASE) == Rpf3Crypto.VIRTUAL_BASE)
+            if ((d3dValue & Rpf3Crypto.VIRTUAL_BASE) == Rpf3Crypto.VIRTUAL_BASE)
             {
-                baseAdress &= 0x0FFFFFFF;
-                reader.Position = (ulong)(baseAdress + Rpf3Crypto.VIRTUAL_BASE);
+                var size = d3dValue & 0xFF;
+                reader.Position = (ulong)((d3dValue & 0xFFFFFF) - size + Rpf3Crypto.VIRTUAL_BASE);
             }
-            if ((d3dValue & Rpf3Crypto.PHYSICAL_BASE) == Rpf3Crypto.PHYSICAL_BASE)
+            else if ((d3dValue & Rpf3Crypto.PHYSICAL_BASE) == Rpf3Crypto.PHYSICAL_BASE)
             {
                 var size = d3dValue & 0xFF;
                 reader.Position = (ulong)((d3dValue & 0xFFFFFF) - size + Rpf3Crypto.VIRTUAL_BASE);
@@ -116,13 +115,35 @@ namespace CodeX.Games.MCLA.RSC5
             Data = reader.ReadBytes(Size);
             Sampler = TextureSampler.Create(TextureSamplerFilter.Anisotropic, TextureAddressMode.Wrap);
 
+            if (Format == TextureFormat.A8R8G8B8)
+            {
+                return;
+            }
+
             //Xbox 360 swizzling
+            UseVirtualDimensions = true;
             Data = Rpf3Crypto.ModifyLinearTexture(Data, virtualW, virtualH, Format);
+
             if (Format == TextureFormat.BC1)
+            {
                 Data = Rpf3Crypto.DecodeDXT1(Data, virtualW, virtualH);
+            }
             else if (Format == TextureFormat.BC3)
+            {
                 Data = Rpf3Crypto.DecodeDXT5(Data, virtualW, virtualH);
-            DDSIO.Xbox360Texture = true;
+            }
+            else if (Format == TextureFormat.L8)
+            {
+                var temp = new byte[Data.Length * 4];
+                for (int index = 0; index < Data.Length; ++index)
+                {
+                    temp[index * 4] = Data[index];
+                    temp[index * 4 + 1] = Data[index];
+                    temp[index * 4 + 2] = Data[index];
+                    temp[index * 4 + 3] = byte.MaxValue;
+                }
+                Data = temp;
+            }
         }
 
         public override void Write(Rsc5DataWriter writer)
@@ -143,7 +164,8 @@ namespace CodeX.Games.MCLA.RSC5
             var num = Format switch
             {
                 TextureFormat.BC1 => width * height / 2,
-                _ => width * height,
+                TextureFormat.BC2 or TextureFormat.BC3 or TextureFormat.A8R8G8B8 or TextureFormat.L8 => width * height,
+                _ => throw new NotImplementedException()
             };
             return num;
         }
@@ -152,7 +174,8 @@ namespace CodeX.Games.MCLA.RSC5
         {
             if (size % 128 != 0)
             {
-                size += 128 - size % 128;
+                size *= 2;
+                //size += 128 - size % 128;
             }
             return size;
         }

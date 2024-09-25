@@ -74,38 +74,6 @@ namespace CodeX.Games.MCLA.RPF3
             return buffer;
         }
 
-        public static int SetBit(int val, int bit, bool trueORfalse)
-        {
-            bool flag = (uint)(val & 1 << bit) > 0U;
-            if (trueORfalse)
-            {
-                if (!flag)
-                    return val |= 1 << bit;
-            }
-            else if (flag)
-            {
-                return val ^ 1 << bit;
-            }
-            return val;
-        }
-
-        public static int TrailingZeroes(int n)
-        {
-            int num1 = 1;
-            int num2 = 0;
-
-            while (num2 < 32)
-            {
-                if ((uint)(n & num1) > 0U)
-                {
-                    return num2;
-                }
-                ++num2;
-                num1 <<= 1;
-            }
-            return 32;
-        }
-
         public static long RoundUp(long num, long multiple)
         {
             if (multiple == 0L)
@@ -114,32 +82,6 @@ namespace CodeX.Games.MCLA.RPF3
             }
             long num1 = multiple / Math.Abs(multiple);
             return (num + multiple - num1) / multiple * multiple;
-        }
-
-        public static int NumLeftTill(int current, int roundTo)
-        {
-            int num = Math.Abs(roundTo - current % roundTo);
-            return num == roundTo ? 0 : num;
-        }
-
-        public static void BufferCopy(Stream target, uint totalLength, Stream source, uint chunkSize = 65535)
-        {
-            uint num1 = totalLength / chunkSize;
-            uint num2 = totalLength % chunkSize;
-            uint[] numArray = new uint[(long)num1 + (num2 > 0U ? 1L : 0L)];
-
-            for (int index = 0; (long)index < (long)num1; ++index)
-                numArray[index] = chunkSize;
-
-            if (num2 > 0U)
-                numArray[numArray.Length - 1] = num2;
-
-            byte[] buffer = new byte[(int)chunkSize];
-            for (int index = 0; index < numArray.Length; ++index)
-            {
-                source.Read(buffer, 0, (int)numArray[index]);
-                target.Write(buffer, 0, (int)numArray[index]);
-            }
         }
 
         public static int Swap(int value)
@@ -156,20 +98,6 @@ namespace CodeX.Games.MCLA.RPF3
             return BitConverter.ToUInt32(data, 0);
         }
 
-        public static float Swap(float value)
-        {
-            var data = BitConverter.GetBytes(value);
-            Array.Reverse(data);
-            return BitConverter.ToSingle(data, 0);
-        }
-
-        public static long Swap(long value)
-        {
-            var data = BitConverter.GetBytes(value);
-            Array.Reverse(data);
-            return BitConverter.ToInt64(data, 0);
-        }
-
         public static short Swap(short value)
         {
             var data = BitConverter.GetBytes(value);
@@ -182,6 +110,13 @@ namespace CodeX.Games.MCLA.RPF3
             var data = BitConverter.GetBytes(value);
             Array.Reverse(data);
             return BitConverter.ToUInt16(data, 0);
+        }
+
+        public static float Swap(float value)
+        {
+            var data = BitConverter.GetBytes(value);
+            Array.Reverse(data);
+            return BitConverter.ToSingle(data, 0);
         }
 
         public static byte[] Swap(byte[] value)
@@ -199,66 +134,29 @@ namespace CodeX.Games.MCLA.RPF3
 
         public static Vector2 Swap(Vector2 vector)
         {
-            byte[] data = BitConverter.GetBytes(vector.X);
-            Array.Reverse(data);
-            float newX = BitConverter.ToSingle(data, 0);
-
-            data = BitConverter.GetBytes(vector.Y);
-            Array.Reverse(data);
-            float newY = BitConverter.ToSingle(data, 0);
-
-            return new Vector2(newX, newY);
+            return new Vector2(Swap(vector.X), Swap(vector.Y));
         }
 
         public static Vector3 Swap(Vector3 vector)
         {
-            byte[] data = BitConverter.GetBytes(vector.X);
-            Array.Reverse(data);
-            float newX = BitConverter.ToSingle(data, 0);
-
-            data = BitConverter.GetBytes(vector.Y);
-            Array.Reverse(data);
-            float newY = BitConverter.ToSingle(data, 0);
-
-            data = BitConverter.GetBytes(vector.Z);
-            Array.Reverse(data);
-            float newZ = BitConverter.ToSingle(data, 0);
-
-            return new Vector3(newX, newY, newZ);
+            return new Vector3(Swap(vector.X), Swap(vector.Y), Swap(vector.Z));
         }
 
         public static Vector4 Swap(Vector4 vector)
         {
-            byte[] data = BitConverter.GetBytes(vector.X);
-            Array.Reverse(data);
-            float newX = BitConverter.ToSingle(data, 0);
-
-            data = BitConverter.GetBytes(vector.Y);
-            Array.Reverse(data);
-            float newY = BitConverter.ToSingle(data, 0);
-
-            data = BitConverter.GetBytes(vector.Z);
-            Array.Reverse(data);
-            float newZ = BitConverter.ToSingle(data, 0);
-
-            data = BitConverter.GetBytes(vector.W);
-            Array.Reverse(data);
-            float newW = BitConverter.ToSingle(data, 0);
-
-            return new Vector4(newX, newY, newZ, newW);
+            return new Vector4(Swap(vector.X), Swap(vector.Y), Swap(vector.Z), Swap(vector.W));
         }
 
         public static BoundingBox Swap(BoundingBox bb)
         {
-            Vector3 max = Swap(bb.Maximum);
-            Vector3 min = Swap(bb.Minimum);
+            var max = Swap(bb.Maximum);
+            var min = Swap(bb.Minimum);
 
-            BoundingBox newBB = new BoundingBox()
+            return  new BoundingBox()
             {
                 Maximum = max,
                 Minimum = min
             };
-            return newBB;
         }
 
         public static BoundingBox4 Swap(BoundingBox4 bb)
@@ -266,12 +164,11 @@ namespace CodeX.Games.MCLA.RPF3
             Vector4 max = Swap(bb.Max);
             Vector4 min = Swap(bb.Min);
 
-            BoundingBox4 newBB = new BoundingBox4()
+            return new BoundingBox4()
             {
                 Max = max,
                 Min = min
             };
-            return newBB;
         }
 
         public static Matrix3x4 Swap(Matrix3x4 m)
@@ -303,11 +200,203 @@ namespace CodeX.Games.MCLA.RPF3
         {
             for (int i = 0; i < values.Length; i++)
             {
-                BoundingBox4 v = values[i];
+                var v = values[i];
                 values[i] = Swap(v);
             }
             return values;
         }
+
+        ///<summary>Swap the axis from XYZ to ZXY</summary>
+        public static Vector3 ToZXY(Vector3 vec)
+        {
+            var x = float.IsNaN(vec.X) ? 0.0f : vec.X;
+            var y = float.IsNaN(vec.Y) ? 0.0f : vec.Y;
+            var z = float.IsNaN(vec.Z) ? 0.0f : vec.Z;
+            return new Vector3(z, x, y);
+        }
+
+        ///<summary>Swap the axis from XYZ to ZXY</summary>
+        public static Vector4 ToZXY(Vector4 vec)
+        {
+            var x = float.IsNaN(vec.X) ? 0.0f : vec.X;
+            var y = float.IsNaN(vec.Y) ? 0.0f : vec.Y;
+            var z = float.IsNaN(vec.Z) ? 0.0f : vec.Z;
+            var w = float.IsNaN(vec.W) ? 0.0f : vec.W;
+            return new Vector4(z, x, y, w);
+        }
+
+        ///<summary>Swap the axis from XYZ to ZXY</summary>
+        public static BoundingBox4 ToZXY(BoundingBox4 bb)
+        {
+            var newBB = new BoundingBox()
+            {
+                Minimum = ToZXY(bb.Min.XYZ()),
+                Maximum = ToZXY(bb.Max.XYZ())
+            };
+            return new BoundingBox4(newBB);
+        }
+
+        ///<summary>Swap the axis from ZXY to XYZ</summary>
+        public static BoundingBox4 ToXYZ(BoundingBox4 bb)
+        {
+            var newBB = new BoundingBox()
+            {
+                Minimum = ToXYZ(bb.Min.XYZ()),
+                Maximum = ToXYZ(bb.Max.XYZ())
+            };
+            return new BoundingBox4(newBB);
+        }
+
+        ///<summary>Swap the axis from XYZ to ZXY</summary>
+        public static BoundingBox4[] ToXYZ(BoundingBox4[] bb)
+        {
+            for (int i = 0; i < bb.Length; i++)
+            {
+                bb[i] = ToXYZ(bb[i]);
+            }
+            return bb;
+        }
+
+        ///<summary>Swap the axis from XYZ to ZXY</summary>
+        public static Quaternion ToZXY(Quaternion quat)
+        {
+            return new Quaternion(quat.Z, quat.X, quat.Y, quat.W);
+        }
+
+        ///<summary>Swap the axis from XYZ to ZXY</summary>
+        public static Matrix3x4 ToZXY(Matrix3x4 m)
+        {
+            m.Translation = ToZXY(m.Translation);
+            m.Orientation = ToZXY(m.Orientation);
+            return m;
+        }
+
+        ///<summary>Swap the axis from ZXY to XYZ</summary>
+        public static Matrix3x4 ToXYZ(Matrix3x4 m, bool write = false)
+        {
+            var r1 = ToXYZ(m.Row1);
+            var r2 = ToXYZ(m.Row2);
+            var r3 = ToXYZ(m.Row3);
+            r1.W = write ? NaN() : (float.IsNaN(r1.W) ? 0.0f : r1.W);
+            r2.W = write ? NaN() : (float.IsNaN(r2.W) ? 0.0f : r2.W);
+            r3.W = write ? NaN() : (float.IsNaN(r3.W) ? 0.0f : r3.W);
+            return new Matrix3x4(r1, r2, r3);
+        }
+
+        ///<summary>Swap the axis from XYZ to ZXY</summary>
+        public static Matrix3x4[] ToZXY(Matrix3x4[] m)
+        {
+            for (int i = 0; i < m.Length; i++)
+            {
+                m[i] = ToZXY(m[i]);
+            }
+            return m;
+        }
+
+        ///<summary>Swap the axis from ZXY to XYZ</summary>
+        public static Matrix3x4[] ToXYZ(Matrix3x4[] m, bool write = false)
+        {
+            if (m == null) return null;
+            for (int i = 0; i < m.Length; i++)
+            {
+                m[i] = ToXYZ(m[i], write);
+            }
+            return m;
+        }
+
+        ///<summary>Swap the axis from XYZ to ZXY</summary>
+        public static Matrix4x4 ToZXY(Matrix4x4 m, bool write = false)
+        {
+            var m14 = write ? NaN() : (float.IsNaN(m.M14) ? 0.0f : m.M14);
+            var m24 = write ? NaN() : (float.IsNaN(m.M24) ? 0.0f : m.M24);
+            var m34 = write ? NaN() : (float.IsNaN(m.M34) ? 0.0f : m.M34);
+            var m44 = write ? NaN() : (float.IsNaN(m.M44) ? 0.0f : m.M44);
+            var translation = m.Translation;
+
+            return new Matrix4x4(
+                m.M11, m.M12, m.M13, m14,
+                m.M21, m.M22, m.M23, m24,
+                m.M31, m.M32, m.M33, m34,
+                translation.Z, translation.X, translation.Y, m44
+            );
+        }
+
+        ///<summary>Swap the axis from ZXY to XYZ</summary>
+        public static Matrix4x4 ToXYZ(Matrix4x4 m, bool write = false)
+        {
+            var m14 = write ? NaN() : (float.IsNaN(m.M14) ? 0.0f : m.M14);
+            var m24 = write ? NaN() : (float.IsNaN(m.M24) ? 0.0f : m.M24);
+            var m34 = write ? NaN() : (float.IsNaN(m.M34) ? 0.0f : m.M34);
+            var m44 = write ? NaN() : (float.IsNaN(m.M44) ? 0.0f : m.M44);
+            var translation = m.Translation;
+
+            return new Matrix4x4(
+                m.M11, m.M12, m.M13, m14,
+                m.M21, m.M22, m.M23, m24,
+                m.M31, m.M32, m.M33, m34,
+                translation.Y, translation.Z, translation.X, m44
+            );
+        }
+
+        ///<summary>Swap the axis from XYZ to ZXY</summary>
+        public static Matrix4x4[] ToZXY(Matrix4x4[] m)
+        {
+            for (int i = 0; i < m.Length; i++)
+            {
+                m[i] = ToZXY(m[i]);
+            }
+            return m;
+        }
+
+        ///<summary>Swap the axis from ZXY to XYZ</summary>
+        public static Matrix4x4[] ToXYZ(Matrix4x4[] m, bool write = false)
+        {
+            if (m == null) return null;
+            for (int i = 0; i < m.Length; i++)
+            {
+                m[i] = ToXYZ(m[i], write);
+            }
+            return m;
+        }
+
+        ///<summary>
+        ///Converts a <see cref="System.Numerics.Vector3" /> from ZXY to XYZ format.
+        ///</summary>
+        ///<param name="vector">The input Vector3 in ZXY format.</param>
+        ///<returns>A new Vector3 in XYZ format.</returns>
+        public static Vector3 ToXYZ(Vector3 vector)
+        {
+            return new Vector3(vector.Y, vector.Z, vector.X);
+        }
+
+        ///<summary>
+        ///Converts a <see cref="System.Numerics.Vector4" /> from ZXYW to XYZW format.
+        ///</summary>
+        ///<param name="vector">The input Vector4 in ZXYW format.</param>
+        ///<returns>A new Vector4 in XYZW format.</returns>
+        public static Vector4 ToXYZ(Vector4 vector)
+        {
+            return new Vector4(vector.Y, vector.Z, vector.X, (vector.W == 0.0f) ? NaN() : vector.W);
+        }
+
+        ///<summary>Returns NaN as 0x0100807F (float.NaN = 0x0000C0FF).</summary>
+        public static float NaN()
+        {
+            return BitConverter.ToSingle(BitConverter.GetBytes(0x7F800001), 0);
+        }
+
+        ///<summary>Returns a <see cref="System.Numerics.Vector4" /> with NaN values.</summary>
+        public static Vector4 GetVec4NaN()
+        {
+            return new Vector4(NaN(), NaN(), NaN(), NaN());
+        }
+
+        ///<summary>Returns a <see cref="System.Numerics.Matrix4x4" /> with NaN values.</summary>
+        public static Matrix4x4 GetMatrix4x4NaN()
+        {
+            return new Matrix4x4(NaN(), NaN(), NaN(), NaN(), NaN(), NaN(), NaN(), NaN(), NaN(), NaN(), NaN(), NaN(), NaN(), NaN(), NaN(), NaN());
+        }
+
         ///<summary>
         ///Swaps the axis and writes a <see cref="System.Numerics.Vector3" /> at the given offset in a buffer
         ///</summary>
@@ -371,11 +460,22 @@ namespace CodeX.Games.MCLA.RPF3
         }
 
         ///<summary>
-        ///Reads UShort2N values and rescales them depending of the LOD level
+        ///Rescales <see cref="CodeX.Core.Numerics.Half2" /> values
+        ///</summary>
+        ///<param name="val">The Half2 value to be rescaled.</param>
+        ///<param name="scale">The scaling factor.</param>
+        ///<returns>A new <see cref="Vector2" /> with the rescaled values.</returns>
+        public static Vector2 RescaleHalf2(Half2 val, float scale)
+        {
+            return new Half2((float)val.X * scale, (float)val.Y * scale);
+        }
+
+        ///<summary>
+        ///Reads UShort2N array and rescales values depending of the LOD level
         ///</summary>
         ///<param name="buffer">The buffer containing the UShort2N values.</param>
         ///<param name="offset">The offset in the buffer where the UShort2N values start.</param>
-        ///<returns>An array of rescaled float values.</returns>
+        ///<returns>The rescaled float array.</returns>
         public static float[] ReadRescaleUShort2N(byte[] buffer, int offset)
         {
             var xBuf = BufferUtil.ReadArray<byte>(buffer, offset, 2);
@@ -396,11 +496,11 @@ namespace CodeX.Games.MCLA.RPF3
             switch (format)
             {
                 case TextureFormat.L8:
-                    blockSizeRow = 2;
+                    blockSizeRow = 1;
                     texelPitch = 1;
                     break;
                 case TextureFormat.A8R8G8B8:
-                    blockSizeRow = 8;
+                    blockSizeRow = 1;
                     texelPitch = 4;
                     break;
                 case TextureFormat.BC1:
@@ -431,22 +531,38 @@ namespace CodeX.Games.MCLA.RPF3
             return buffer;
         }
 
-        public static int XGAddress2DTiledX(int Offset, int Width, int TexelPitch)
+        public static int XGAddress2DTiledX(int offset, int width, int texelPitch)
         {
-            int num1 = Width + 31 & -32;
-            int num2 = (TexelPitch >> 2) + (TexelPitch >> 1 >> (TexelPitch >> 2));
-            int num3 = Offset << num2;
-            int num4 = ((num3 & -4096) >> 3) + ((num3 & 1792) >> 2) + (num3 & 63);
-            return (((num4 >> 7 + num2) % (num1 >> 5) << 2) + ((num4 >> 5 + num2 & 2) + (num3 >> 6) & 3) << 3) + (((num4 >> 1 & -16) + (num4 & 15) & (TexelPitch << 3) - 1) >> num2);
+            int alignedWidth = (width + 31) & ~31;
+
+            int logBpp = (texelPitch >> 2) + ((texelPitch >> 1) >> (texelPitch >> 2));
+            int offsetB = offset << logBpp;
+            int offsetT = ((offsetB & ~4095) >> 3) + ((offsetB & 1792) >> 2) + (offsetB & 63);
+            int offsetM = offsetT >> (7 + logBpp);
+
+            int macroX = (offsetM % (alignedWidth >> 5)) << 2;
+            int tile = (((offsetT >> (5 + logBpp)) & 2) + (offsetB >> 6)) & 3;
+            int macro = (macroX + tile) << 3;
+            int micro = ((((offsetT >> 1) & ~15) + (offsetT & 15)) & ((texelPitch << 3) - 1)) >> logBpp;
+
+            return macro + micro;
         }
 
-        public static int XGAddress2DTiledY(int Offset, int Width, int TexelPitch)
+        public static int XGAddress2DTiledY(int offset, int width, int texelPitch)
         {
-            int num1 = Width + 31 & -32;
-            int num2 = (TexelPitch >> 2) + (TexelPitch >> 1 >> (TexelPitch >> 2));
-            int num3 = Offset << num2;
-            int num4 = ((num3 & -4096) >> 3) + ((num3 & 1792) >> 2) + (num3 & 63);
-            return (((((num4 >> (7 + num2)) / (num1 >> 5)) << 2) + ((num4 >> (6 + num2)) & 1) + ((num3 & 2048) >> 10)) << 3) + ((num4 & ((TexelPitch << 6) - 1 & -32)) + ((num4 & 15) << 1) >> 3 + num2 & -2) + ((num4 & 16) >> 4);
+            int alignedWidth = (width + 31) & ~31;
+
+            int logBpp = (texelPitch >> 2) + ((texelPitch >> 1) >> (texelPitch >> 2));
+            int offsetB = offset << logBpp;
+            int offsetT = ((offsetB & ~4095) >> 3) + ((offsetB & 1792) >> 2) + (offsetB & 63);
+            int offsetM = offsetT >> (7 + logBpp);
+
+            int macroY = (offsetM / (alignedWidth >> 5)) << 2;
+            int tile = ((offsetT >> (6 + logBpp)) & 1) + (((offsetB & 2048) >> 10));
+            int macro = (macroY + tile) << 3;
+            int micro = (((offsetT & ((texelPitch << 6) - 1) & ~31) + ((offsetT & 15) << 1)) >> (3 + logBpp)) & ~1;
+
+            return macro + micro + ((offsetT & 16) >> 4);
         }
 
         public static byte[] DecodeDXT1(byte[] data, int width, int height)

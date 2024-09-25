@@ -7,22 +7,21 @@ using System.Text;
 using CodeX.Games.MCLA.RPF3;
 using TC = System.ComponentModel.TypeConverterAttribute;
 using EXP = System.ComponentModel.ExpandableObjectConverter;
+using CodeX.Games.MCLA.Files;
 
 namespace CodeX.Games.MCLA.RSC5
 {
-    [TC(typeof(EXP))] public class Rsc5DrawableDictionary<T> : Rsc5FileBase where T: Rsc5DrawableBase, new()
+    [TC(typeof(EXP))] public class Rsc5AmbientDrawablePed : Rsc5FileBase //.xapb
     {
         public override ulong BlockLength => 64;
         public uint BlockMapPointer { get; set; }
-        public Rsc5Arr<JenkHash> Hashes { get; set; }
-        public Rsc5Ptr<T> Drawables { get; set; }
+        public Rsc5Ptr<Rsc5DrawableBase> Drawable { get; set; }
 
         public override void Read(Rsc5DataReader reader)
         {
             base.Read(reader);
             BlockMapPointer = reader.ReadUInt32();
-            Drawables = reader.ReadPtr<T>();
-            Hashes = reader.ReadArr<JenkHash>();
+            Drawable = reader.ReadPtr<Rsc5DrawableBase>();
         }
 
         public override void Write(Rsc5DataWriter writer)
@@ -31,28 +30,7 @@ namespace CodeX.Games.MCLA.RSC5
         }
     }
 
-    [TC(typeof(EXP))] public class Rsc5MapDictionary<T> : Rsc5FileBase where T : Rsc5DrawableBase, new()
-    {
-        public override ulong BlockLength => 64;
-        public uint BlockMapPointer { get; set; }
-        public Rsc5Ptr<Rsc5TextureDictionary> TextureDictionary { get; set; }
-        public Rsc5Ptr<T> Drawables { get; set; }
-
-        public override void Read(Rsc5DataReader reader)
-        {
-            base.Read(reader);
-            BlockMapPointer = reader.ReadUInt32();
-            TextureDictionary = reader.ReadPtr<Rsc5TextureDictionary>();
-            Drawables = reader.ReadPtr<T>();
-        }
-
-        public override void Write(Rsc5DataWriter writer)
-        {
-            throw new NotImplementedException();
-        }
-    }
-
-    [TC(typeof(EXP))] public class Rsc5Drawable : Rsc5DrawableBase
+    [TC(typeof(EXP))] public class Rsc5Drawable : Rsc5SimpleDrawableBase
     {
         public Rsc5Str NameRef { get; set; }
 
@@ -75,10 +53,173 @@ namespace CodeX.Games.MCLA.RSC5
 
     [TC(typeof(EXP))] public class Rsc5DrawableBase : Piece, Rsc5Block
     {
+        public virtual ulong BlockLength => 116;
+        public ulong FilePosition { get; set; }
+        public bool IsPhysical => false;
+
+        public uint VFT { get; set; } = 0x00516D84;
+        public Rsc5Ptr<Rsc5BlockMap> BlockMap { get; set; }
+        public Rsc5Ptr<Rsc5ShaderGroup> ShaderGroup { get; set; }
+        public Rsc5Ptr<Rsc5Skeleton> SkeletonRef { get; set; }
+        public Vector4 BoundingCenter { get; set; }
+        public Vector4 BoundingBoxMin { get; set; }
+        public Vector4 BoundingBoxMax { get; set; }
+        public Rsc5Ptr<Rsc5DrawableLod> DrawableModelsHigh { get; set; }
+        public Rsc5Ptr<Rsc5DrawableLod> DrawableModelsMed { get; set; }
+        public Rsc5Ptr<Rsc5DrawableLod> DrawableModelsLow { get; set; }
+        public Rsc5Ptr<Rsc5DrawableLod> DrawableModelsVlow { get; set; }
+        public float LodDistHigh { get; set; }
+        public float LodDistMed { get; set; }
+        public float LodDistLow { get; set; }
+        public float LodDistVlow { get; set; }
+        public int DrawBucketMaskHigh { get; set; }
+        public int DrawBucketMaskMed { get; set; }
+        public int DrawBucketMaskLow { get; set; }
+        public int DrawBucketMaskVlow { get; set; }
+        public float BoundingSphereRadius { get; set; }
+
+        public virtual void Read(Rsc5DataReader reader)
+        {
+            VFT = reader.ReadUInt32();
+            BlockMap = reader.ReadPtr<Rsc5BlockMap>();
+            ShaderGroup = reader.ReadPtr<Rsc5ShaderGroup>();
+            SkeletonRef = reader.ReadPtr<Rsc5Skeleton>();
+            BoundingCenter = reader.ReadVector4();
+            BoundingBoxMin = reader.ReadVector4();
+            BoundingBoxMax = reader.ReadVector4();
+            DrawableModelsHigh = reader.ReadPtr<Rsc5DrawableLod>();
+            DrawableModelsMed = reader.ReadPtr<Rsc5DrawableLod>();
+            DrawableModelsLow = reader.ReadPtr<Rsc5DrawableLod>();
+            DrawableModelsVlow = reader.ReadPtr<Rsc5DrawableLod>();
+            LodDistHigh = reader.ReadSingle();
+            LodDistMed = reader.ReadSingle();
+            LodDistLow = reader.ReadSingle();
+            LodDistVlow = reader.ReadSingle();
+            DrawBucketMaskHigh = reader.ReadInt32();
+            DrawBucketMaskMed = reader.ReadInt32();
+            DrawBucketMaskLow = reader.ReadInt32();
+            DrawBucketMaskVlow = reader.ReadInt32();
+            BoundingSphereRadius = reader.ReadSingle();
+
+            Lods = new[]
+            {
+                DrawableModelsHigh.Item,
+                DrawableModelsMed.Item,
+                DrawableModelsLow.Item,
+                DrawableModelsVlow.Item
+            };
+
+            if (DrawableModelsHigh.Item != null) DrawableModelsHigh.Item.LodDist = LodDistHigh;
+            if (DrawableModelsMed.Item != null) DrawableModelsMed.Item.LodDist = LodDistMed;
+            if (DrawableModelsLow.Item != null) DrawableModelsLow.Item.LodDist = LodDistLow;
+            if (DrawableModelsVlow.Item != null) DrawableModelsVlow.Item.LodDist = LodDistVlow;
+
+            UpdateAllModels();
+            AssignShaders();
+            SetSkeleton(SkeletonRef.Item);
+            CreateTexturePack(reader.FileEntry);
+
+            UpdateBounds();
+            BoundingSphere = new BoundingSphere(BoundingBox.Center, BoundingSphereRadius);
+        }
+
+        public virtual void Write(Rsc5DataWriter writer)
+        {
+            writer.WriteUInt32(VFT);
+            writer.WritePtr(BlockMap);
+            writer.WritePtr(ShaderGroup);
+            writer.WritePtr(SkeletonRef);
+            writer.WriteVector4(BoundingCenter);
+            writer.WriteVector4(BoundingBoxMin);
+            writer.WriteVector4(BoundingBoxMax);
+            writer.WritePtr(DrawableModelsHigh);
+            writer.WritePtr(DrawableModelsMed);
+            writer.WritePtr(DrawableModelsLow);
+            writer.WritePtr(DrawableModelsVlow);
+            writer.WriteSingle(LodDistHigh);
+            writer.WriteSingle(LodDistMed);
+            writer.WriteSingle(LodDistLow);
+            writer.WriteSingle(LodDistVlow);
+            writer.WriteInt32(DrawBucketMaskHigh);
+            writer.WriteInt32(DrawBucketMaskMed);
+            writer.WriteInt32(DrawBucketMaskLow);
+            writer.WriteInt32(DrawBucketMaskVlow);
+            writer.WriteSingle(BoundingSphereRadius);
+        }
+
+        public void AssignShaders()
+        {
+            //Assign embedded textures to mesh for rendering
+            if ((ShaderGroup.Item?.Shaders.Items != null) && (AllModels != null))
+            {
+                var shaders = ShaderGroup.Item?.Shaders.Items;
+                for (int i = 0; i < AllModels.Length; i++)
+                {
+                    var model = AllModels[i];
+                    if (model.Meshes != null)
+                    {
+                        for (int j = 0; j < model.Meshes.Length; j++)
+                        {
+                            if (model.Meshes[j] is Rsc5DrawableGeometry mesh)
+                            {
+                                var shader = (mesh.ShaderID < shaders.Length) ? shaders[mesh.ShaderID] : null;
+                                mesh.SetShaderRef(shader);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        public void SetSkeleton(Rsc5Skeleton skel)
+        {
+            Skeleton = skel;
+            if (AllModels != null)
+            {
+                var bones = skel?.Bones;
+                foreach (var model in AllModels.Cast<Rsc5DrawableModel>())
+                {
+                    var boneidx = model.BoneIndex;
+                    if ((model.HasSkin == 0) && (bones != null) && (boneidx < bones.Length))
+                    {
+                        if (model.Meshes != null)
+                        {
+                            foreach (var mesh in model.Meshes)
+                            {
+                                mesh.BoneIndex = boneidx;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        private void CreateTexturePack(GameArchiveFileInfo e)
+        {
+            var texs = XapbFile.Textures;
+            if (texs == null) return;
+
+            var txp = new TexturePack(e)
+            {
+                Textures = new Dictionary<string, Texture>()
+            };
+
+            for (int i = 0; i < texs.Count; i++)
+            {
+                var tex = texs[i];
+                if (tex == null) continue;
+                txp.Textures[tex.Name] = tex;
+                tex.Pack = txp;
+            }
+            TexturePack = txp;
+        }
+    }
+
+    [TC(typeof(EXP))] public class Rsc5SimpleDrawableBase : Piece, Rsc5Block
+    {
         public virtual ulong BlockLength => 160;
         public ulong FilePosition { get; set; }
         public bool IsPhysical => false;
-        public ulong VFT { get; set; }
 
         public Rsc5Ptr<Rsc5ShaderGroup> ShaderGroup { get; set; }
         public Rsc5DrawableLod Lod { get; set; }
@@ -94,7 +235,7 @@ namespace CodeX.Games.MCLA.RSC5
             }
 
             UpdateAllModels();
-            AssignGeometryShaders(ShaderGroup.Item);
+            AssignGeometryShaders();
         }
 
         public virtual void Write(Rsc5DataWriter writer)
@@ -102,7 +243,7 @@ namespace CodeX.Games.MCLA.RSC5
             throw new NotImplementedException();
         }
 
-        public void AssignGeometryShaders(Rsc5ShaderGroup shaderGrp)
+        public void AssignGeometryShaders()
         {
             if (AllModels == null)
                 return;
@@ -123,8 +264,7 @@ namespace CodeX.Games.MCLA.RSC5
         }
     }
 
-    [TC(typeof(EXP))]
-    public class Rsc5DrawableLod : PieceLod, Rsc5Block
+    [TC(typeof(EXP))] public class Rsc5DrawableLod : PieceLod, Rsc5Block
     {
         public ulong BlockLength => 16;
         public ulong FilePosition { get; set; }
@@ -141,56 +281,20 @@ namespace CodeX.Games.MCLA.RSC5
         {
             throw new NotImplementedException();
         }
-
-        public void WriteXml(StringBuilder sb, int indent, Vector3 center)
-        {
-            foreach (var m in ModelsData.Items)
-            {
-                Xml.OpenTag(sb, indent, "Item");
-                m.WriteXml(sb, indent + 1, center);
-                Xml.CloseTag(sb, indent, "Item");
-            }
-        }
     }
 
-    [TC(typeof(EXP))]
-    public class Rsc5DrawableModel : Model, Rsc5Block
+    [TC(typeof(EXP))] public class Rsc5DrawableModel : Model, Rsc5Block
     {
-        public ulong BlockLength
-        {
-            get
-            {
-                //this crazyness exists to force a particular block layout when saving, same as vanilla files
-                var off = (ulong)48;
-                var geocount = Geometries.Count;
-                var geoms = Geometries.Items;
-                off += (geocount * 2u); //ShaderMapping
-                if (geocount == 1) off += 6;
-                else off += ((16 - (off % 16)) % 16);
-                off += (geocount * 8u); //Geometries pointers
-                off += ((16 - (off % 16)) % 16);
-                off += (geocount + ((geocount > 1) ? 1u : 0)) * 32; //BoundsData
-                for (int i = 0; i < geocount; i++)
-                {
-                    var geom = (geoms != null) ? geoms[i] : null;
-                    if (geom != null)
-                    {
-                        off += ((16 - (off % 16)) % 16);
-                        off += geom.BlockLength; //Geometries
-                    }
-                }
-                return off;
-            }
-        }
+        public ulong BlockLength => 28;
         public ulong FilePosition { get; set; }
         public bool IsPhysical => false;
-        public ulong VFT { get; set; } = 0x82E7C4;
-        public Rsc5PtrArr<Rsc5DrawableGeometry> Geometries { get; set; }
-        public Rsc5RawArr<BoundingBox4> BoundsData { get; set; }
-        public Rsc5RawArr<ushort> ShaderMapping { get; set; }
-        public uint SkeletonBinding { get; set; }//4th byte is bone index, 2nd byte for skin meshes
-        public ushort RenderMaskFlags { get; set; } //First byte is called "Mask" in GIMS EVO
-        public ushort GeometriesCount3 { get; set; } //always equal to Geometries.Count, is it ShaderMappingCount?
+        public ulong VFT { get; set; }
+        public Rsc5PtrArr<Rsc5DrawableGeometry> Geometries { get; set; } //m_Geometries
+        public Rsc5RawArr<BoundingBox4> BoundsData { get; set; } //m_AABBs, one for each geometry + one for the whole model (unless there's only one model)
+        public Rsc5RawArr<ushort> ShaderMapping { get; set; } //m_ShaderIndex
+        public uint SkeletonBinding { get; set; } //4th byte is bone index, 2nd byte for skin meshes
+        public ushort RenderMaskFlags { get; set; } //m_SkinFlag, determine whether to render with the skinned draw path or not
+        public ushort GeometriesCount3 { get; set; } //m_Count
 
         public byte BoneIndex
         {
@@ -241,7 +345,7 @@ namespace CodeX.Games.MCLA.RSC5
             if (geoms != null)
             {
                 var shaderMapping = ShaderMapping.Items;
-                var boundsData = (BoundsData.Items != null && BoundsData.Items.Length > 0) ? Rpf3Crypto.Swap(BoundsData.Items) : null;
+                var boundsData = (BoundsData.Items != null && BoundsData.Items.Length > 0) ? Rpf3Crypto.ToXYZ(Rpf3Crypto.Swap(BoundsData.Items)) : null;
 
                 for (int i = 0; i < geoms.Length; i++)
                 {
@@ -250,44 +354,22 @@ namespace CodeX.Games.MCLA.RSC5
                     {
                         geom.ShaderID = ((shaderMapping != null) && (i < shaderMapping.Length)) ? shaderMapping[i] : (ushort)0;
                         geom.AABB = (boundsData != null) ? ((boundsData.Length > 1) && ((i + 1) < boundsData.Length)) ? boundsData[i + 1] : boundsData[0] : new BoundingBox4();
-
                         geom.BoundingBox = new BoundingBox(geom.AABB.Min.XYZ(), geom.AABB.Max.XYZ());
+                        geom.BoundingSphere = new BoundingSphere(geom.BoundingBox.Center, geom.BoundingBox.Size.Length() * 0.5f);
                     }
                 }
             }
-            Meshes = Geometries.Items;
 
-            // FIXME
-            RenderInMainView = true; //((RenderMaskFlags & 0x1) > 0);
-            RenderInShadowView = true; //((RenderMaskFlags & 0x2) > 0);
-            RenderInEnvmapView = true; //((RenderMaskFlags & 0x4) > 0);
+            Meshes = Geometries.Items;
+            RenderInMainView = (RenderMaskFlags & 0x1) > 0;
+            RenderInShadowView = (RenderMaskFlags & 0x2) > 0;
+            RenderInEnvmapView = (RenderMaskFlags & 0x4) > 0;
         }
 
         public void Write(Rsc5DataWriter writer)
         {
             GeometriesCount3 = Geometries.Count; //is this correct?
             throw new NotImplementedException();
-        }
-
-        public void WriteXml(StringBuilder sb, int indent, Vector3 center)
-        {
-            Xml.ValueTag(sb, indent, "RenderMask", "255");
-            Xml.ValueTag(sb, indent, "Flags", "0");
-            Xml.ValueTag(sb, indent, "HasSkin", "0");
-            Xml.ValueTag(sb, indent, "BoneIndex", BoneIndex.ToString());
-            Xml.ValueTag(sb, indent, "Unknown1", SkeletonBindUnk1.ToString());
-
-            if (Geometries.Items != null)
-            {
-                Xml.OpenTag(sb, indent, "Geometries");
-                foreach (var m in Geometries.Items)
-                {
-                    Xml.OpenTag(sb, indent + 1, "Item");
-                    m.WriteXml(sb, indent + 2, center);
-                    Xml.CloseTag(sb, indent + 1, "Item");
-                }
-                Xml.CloseTag(sb, indent, "Geometries");
-            }
         }
 
         public override string ToString()
@@ -297,8 +379,7 @@ namespace CodeX.Games.MCLA.RSC5
         }
     }
 
-    [TC(typeof(EXP))]
-    public class Rsc5DrawableGeometry : Mesh, Rsc5Block
+    [TC(typeof(EXP))] public class Rsc5DrawableGeometry : Mesh, Rsc5Block
     {
         public ulong BlockLength
         {
@@ -317,32 +398,32 @@ namespace CodeX.Games.MCLA.RSC5
         public ulong FilePosition { get; set; }
         public bool IsPhysical => false;
 
-        public ulong VFT { get; set; } = 0x140618798;
-        public ulong Unknown_8h; // 0x0000000000000000
-        public ulong Unknown_10h; // 0x0000000000000000
-        public Rsc5Ptr<Rsc5VertexBuffer> VertexBuffer { get; set; }
-        public ulong Unknown_20h; // 0x0000000000000000
-        public ulong Unknown_28h; // 0x0000000000000000
-        public ulong Unknown_30h; // 0x0000000000000000
-        public Rsc5Ptr<Rsc5IndexBuffer> IndexBuffer { get; set; }
-        public ulong Unknown_40h; // 0x0000000000000000
-        public ulong Unknown_48h; // 0x0000000000000000
-        public ulong Unknown_50h; // 0x0000000000000000
-        public uint IndicesCount { get; set; }
-        public uint TrianglesCount { get; set; }
-        public ushort Unknown_62h = 3; // 0x0003 // indices per primitive (triangle)
-        public uint Unknown_64h; // 0x00000000
-        public Rsc5RawArr<ushort> BoneIds { get; set; }//data is embedded at the end of this struct
-        public ushort BoneIdsCount { get; set; }
-        public uint Unknown_74h; // 0x00000000
+        public uint VFT { get; set; }
+        public uint Unknown_8h { get; set; }
+        public uint Unknown_10h { get; set; }
+        public Rsc5Ptr<Rsc5VertexBuffer> VertexBuffer { get; set; } //m_VB[4] - rage::grcVertexBuffer
+        public Rsc5Ptr<Rsc5VertexBuffer> VertexBuffer2 { get; set; }
+        public Rsc5Ptr<Rsc5VertexBuffer> VertexBuffer3 { get; set; }
+        public Rsc5Ptr<Rsc5VertexBuffer> VertexBuffer4 { get; set; }
+        public Rsc5Ptr<Rsc5IndexBuffer> IndexBuffer { get; set; } //m_IB[4] - rage::grcIndexBuffer
+        public Rsc5Ptr<Rsc5IndexBuffer> IndexBuffer2 { get; set; }
+        public Rsc5Ptr<Rsc5IndexBuffer> IndexBuffer3 { get; set; }
+        public Rsc5Ptr<Rsc5IndexBuffer> IndexBuffer4 { get; set; }
+        public uint IndicesCount { get; set; } //m_IndexCount
+        public uint TrianglesCount { get; set; } //m_PrimCount
+        public ushort Unknown_62h { get; set; } = 3; //m_PrimType, rendering primitive type
+        public uint Unknown_64h { get; set; }
+        public Rsc5RawArr<ushort> BoneIds { get; set; } //m_MtxPalette, matrix palette for this geometry
+        public ushort BoneIdsCount { get; set; } //m_MtxCount, the number of matrices in the matrix paletter
+        public uint Unknown_74h { get; set; }
         public Rsc5RawArr<byte> VertexDataRef { get; set; }
-        public ulong Unknown_80h; // 0x0000000000000000
-        public ulong Unknown_88h; // 0x0000000000000000
-        public ulong Unknown_90h; // 0x0000000000000000
+        public uint Unknown_80h { get; set; } //m_OffsetBuffer, PS3 only I think
+        public uint Unknown_88h { get; set; } //m_IndexOffset, PS3 only I think
+        public uint Unknown_90h { get; set; }
 
         public Rsc5Shader ShaderRef { get; set; }
-        public ushort ShaderID { get; set; }//read/written by parent model
-        public BoundingBox4 AABB { get; set; }//read/written by parent model
+        public ushort ShaderID { get; set; } //Read-written by parent model
+        public BoundingBox4 AABB { get; set; } //Read-written by parent model
 
         public Rsc5DrawableGeometry()
         {
@@ -354,13 +435,13 @@ namespace CodeX.Games.MCLA.RSC5
             Unknown_8h = reader.ReadUInt32();
             Unknown_10h = reader.ReadUInt32();
             VertexBuffer = reader.ReadPtr<Rsc5VertexBuffer>();
-            Unknown_20h = reader.ReadUInt32();
-            Unknown_28h = reader.ReadUInt32();
-            Unknown_30h = reader.ReadUInt32();
+            VertexBuffer2 = reader.ReadPtr<Rsc5VertexBuffer>();
+            VertexBuffer3 = reader.ReadPtr<Rsc5VertexBuffer>();
+            VertexBuffer4 = reader.ReadPtr<Rsc5VertexBuffer>();
             IndexBuffer = reader.ReadPtr<Rsc5IndexBuffer>();
-            Unknown_40h = reader.ReadUInt32();
-            Unknown_48h = reader.ReadUInt32();
-            Unknown_50h = reader.ReadUInt32();
+            IndexBuffer2 = reader.ReadPtr<Rsc5IndexBuffer>();
+            IndexBuffer3 = reader.ReadPtr<Rsc5IndexBuffer>();
+            IndexBuffer4 = reader.ReadPtr<Rsc5IndexBuffer>();
             IndicesCount = reader.ReadUInt32();
             TrianglesCount = reader.ReadUInt32();
             VertexCount = reader.ReadUInt16();
@@ -370,7 +451,7 @@ namespace CodeX.Games.MCLA.RSC5
             BoneIdsCount = reader.ReadUInt16();
             BoneIds = reader.ReadRawArrItems(BoneIds, BoneIdsCount, true);
 
-            if (VertexBuffer.Item != null) //hack to fix stupid "locked" things
+            if (VertexBuffer.Item != null) //Hack to fix stupid "locked" things
             {
                 VertexLayout = VertexBuffer.Item?.Layout.Item?.VertexLayout;
                 VertexData = Rpf3Crypto.Swap(VertexBuffer.Item.Data1.Items ?? VertexBuffer.Item.Data2.Items);
@@ -381,7 +462,7 @@ namespace CodeX.Games.MCLA.RSC5
                 }
             }
 
-            //Swap CMLA axis + endianess
+            //Swap MCLA axis + endianess
             byte[] numArray = VertexData;
             var elems = VertexLayout.Elements;
             var elemcount = elems.Length;
@@ -406,10 +487,15 @@ namespace CodeX.Games.MCLA.RSC5
                         case VertexElementFormat.Dec3N: //10101012
                             var packed = BufferUtil.ReadUint(numArray, index + elemoffset);
                             var pv = FloatUtil.Dec3NToVector4(packed); //Convert Dec3N to Vector4
-                            var np1 = FloatUtil.Vector4ToDec3N(new Vector4(pv.Z, pv.X, pv.Y, pv.W)); //Convert Vector4 back to Dec3N from CMLA axis
+                            var np1 = FloatUtil.Vector4ToDec3N(new Vector4(pv.Z, pv.X, pv.Y, pv.W)); //Convert Vector4 back to Dec3N with MCLA axis
                             BufferUtil.WriteUint(numArray, index + elemoffset, np1);
                             break;
-                        case VertexElementFormat.UShort2N: //Scale terrain UVs
+                        case VertexElementFormat.Half2:
+                            var half2 = BufferUtil.ReadStruct<Half2>(numArray, index + elemoffset);
+                            half2 = new Half2(half2.Y, half2.X);
+                            BufferUtil.WriteStruct(numArray, index + elemoffset, ref half2);
+                            break;
+                        case VertexElementFormat.UShort2N:
                             Rpf3Crypto.ReadRescaleUShort2N(numArray, index + elemoffset);
                             break;
                         default:
@@ -424,525 +510,24 @@ namespace CodeX.Games.MCLA.RSC5
 
         public void Write(Rsc5DataWriter writer)
         {
-            VertexCount = VertexBuffer.Item != null ? VertexBuffer.Item.VertexCount : 0; //TODO: fix?
-            VertexStride = (int)(VertexBuffer.Item != null ? VertexBuffer.Item.VertexStride : 0); //TODO: fix?
-            IndicesCount = IndexBuffer.Item != null ? IndexBuffer.Item.IndicesCount : 0; //TODO: fix?
+            VertexCount = VertexBuffer.Item != null ? VertexBuffer.Item.VertexCount : 0;
+            VertexStride = (int)(VertexBuffer.Item != null ? VertexBuffer.Item.VertexStride : 0);
+            IndicesCount = IndexBuffer.Item != null ? IndexBuffer.Item.IndicesCount : 0;
             TrianglesCount = IndicesCount / 3;
             throw new NotImplementedException();
-        }
-
-        public void WriteXml(StringBuilder sb, int indent, Vector3 center)
-        {
-            var aabbMin = new Vector4(Vector3.Subtract(AABB.Min.XYZ(), center), AABB.Min.W);
-            var aabbMax = new Vector4(Vector3.Subtract(AABB.Max.XYZ(), center), AABB.Max.W);
-
-            Xml.ValueTag(sb, indent, "ShaderIndex", ShaderID.ToString());
-            Xml.SelfClosingTag(sb, indent, "BoundingBoxMin " + FloatUtil.GetVector4XmlString(aabbMin));
-            Xml.SelfClosingTag(sb, indent, "BoundingBoxMax " + FloatUtil.GetVector4XmlString(aabbMax));
-
-            if (VertexLayout != null)
-            {
-                Xml.OpenTag(sb, indent, "VertexBuffer");
-                Xml.ValueTag(sb, indent, "Flags", "0");
-                Xml.OpenTag(sb, indent, string.Format("Layout type=\"{0}\"", VertexBuffer.Item.Layout.Item.Types.ToString()).Replace("RDR1_1", "GTAV1").Replace("RDR1_2", "GTAV1"));
-                var elems = VertexLayout.Elements;
-                var elemcount = elems.Length;
-
-                for (int i = 0; i < elemcount; i++)
-                {
-                    var elem = elems[i];
-                    var name = TranslateToSollumz(elem.SemanticName);
-
-                    if (string.IsNullOrEmpty(name))
-                        continue;
-                    if (elem.SemanticIndex > 0 || name == "Tangent")
-                        continue;
-
-                    if (name == "Colour" || name == "TexCoord")
-                        Xml.SelfClosingTag(sb, indent + 1, name + elem.SemanticIndex);
-                    else if ((name == "Tangent" || name == "BlendWeights" || name == "BlendIndices") && elem.SemanticIndex > 0)
-                        Xml.SelfClosingTag(sb, indent + 1, name + elem.SemanticIndex);
-                    else
-                        Xml.SelfClosingTag(sb, indent + 1, name);
-                }
-
-                Xml.CloseTag(sb, indent, "Layout");
-                Xml.OpenTag(sb, indent, "Data");
-
-                var elemoffset = 0;
-                for (int v = 0; v < VertexCount; v++)
-                {
-                    Xml.Indent(sb, indent + 1);
-                    var formatedOutput = GenerateVertexData(v, center, ref elemoffset);
-                    sb.Append(formatedOutput);
-                    sb.AppendLine();
-                }
-                Xml.CloseTag(sb, indent, "Data");
-                Xml.CloseTag(sb, indent, "VertexBuffer");
-            }
-
-            if (IndexBuffer.Item != null)
-            {
-                Xml.OpenTag(sb, indent, "IndexBuffer");
-                Xml.WriteRawArray(sb, indent, "Data", Indices);
-                Xml.CloseTag(sb, indent, "IndexBuffer");
-            }
-        }
-
-        public string TranslateToSollumz(string name)
-        {
-            switch (name)
-            {
-                case "POSITION": return "Position";
-                case "BLENDWEIGHTS": return "BlendWeights";
-                case "BLENDINDICES": return "BlendIndices";
-                case "NORMAL": return "Normal";
-                case "COLOR": return "Colour";
-                case "TEXCOORD": return "TexCoord";
-                case "TANGENT": return "Tangent";
-                case "BINORMAL": return "Binormal";
-                default: return "";
-            }
-        }
-
-        public string GenerateVertexData(int v, Vector3 center, ref int elemoffset)
-        {
-            if (VertexLayout == null)
-                return "";
-
-            var elems = VertexLayout.Elements;
-            var elemcount = elems.Length;
-
-            List<Vector3> vertexPositions = new List<Vector3>();
-            List<Colour> vertexColors = new List<Colour>();
-            List<Vector3> vertexNormals = new List<Vector3>();
-            List<Vector4> vertexTangents = new List<Vector4>();
-            List<Vector2> texCoords = new List<Vector2>();
-            List<Colour> blendWeights = new List<Colour>();
-            List<Colour> blendIndices = new List<Colour>();
-
-            var sb = new StringBuilder();
-            for (int i = 0; i < elemcount; i++)
-            {
-                var elem = elems[i];
-                var index = elem.SemanticIndex;
-                var elemsize = VertexElementFormats.GetSizeInBytes(elem.Format);
-
-                if (elem.SemanticIndex > 0)
-                {
-                    elemoffset += elemsize;
-                    continue;
-                }
-
-                switch (elem.SemanticName)
-                {
-                    case "TEXCOORD":
-                        switch (elem.Format)
-                        {
-                            case VertexElementFormat.Half2:
-                                var x = BitConverter.ToUInt16(VertexData, elemoffset);
-                                var y = BitConverter.ToUInt16(VertexData, elemoffset + 2);
-                                var half2 = new Half2(x, y);
-                                texCoords.Add(new Vector2((float)half2.X, (float)half2.Y));
-                                break;
-                            case VertexElementFormat.Float2:
-                                var xy = BufferUtil.ReadVector2(VertexData, elemoffset);
-                                texCoords.Add(xy);
-                                break;
-                        }
-                        break;
-
-                    case "NORMAL":
-                    case "POSITION":
-                        var pos = BufferUtil.ReadVector3(VertexData, elemoffset);
-                        pos = Vector3.Subtract(pos, center);
-                        switch (elem.SemanticName)
-                        {
-                            case "NORMAL":
-                                vertexNormals.Add(pos);
-                                break;
-                            case "POSITION":
-                                vertexPositions.Add(pos);
-                                break;
-                        }
-                        break;
-                    case "TANGENT":
-                        var pos4 = BufferUtil.ReadVector4(VertexData, elemoffset);
-                        var center4 = new Vector4(center, pos4.W);
-                        var tangents = Vector4.Subtract(pos4, center4);
-                        vertexTangents.Add(tangents);
-                        break;
-
-                    case "BLENDWEIGHTS":
-                    case "COLOR":
-                        var color = BufferUtil.ReadColour(VertexData, elemoffset);
-                        switch (elem.SemanticName)
-                        {
-                            case "BLENDWEIGHTS":
-                                blendWeights.Add(color);
-                                break;
-                            case "COLOR":
-                                vertexColors.Add(color);
-                                break;
-                        }
-                        break;
-                    default:
-                        break;
-                }
-                elemoffset += elemsize;
-
-                switch (elem.SemanticName)
-                {
-                    case "POSITION": sb.Append(string.Format("{0} {1} {2}   ", vertexPositions[index].X, vertexPositions[index].Y, vertexPositions[index].Z).Replace(",", ".")); break;
-                    case "BLENDWEIGHTS": var bw = blendWeights[index].ToArray(); sb.Append(string.Format("{0} {1} {2} {3}   ", bw[0], bw[1], bw[2], bw[3])); break;
-                    case "BLENDINDICES": var bi = blendIndices[index].ToArray(); sb.Append(string.Format("{0} {1} {2} {3}   ", bi[0], bi[1], bi[2], bi[3])); break;
-                    case "NORMAL": sb.Append(string.Format("{0} {1} {2}   ", vertexNormals[index].X, vertexNormals[index].Y, vertexNormals[index].Z).Replace(",", ".")); break;
-                    case "COLOR": var color = vertexColors[index].ToArray(); sb.Append(string.Format("{0} {1} {2} {3}   ", color[0], color[1], color[2], color[3])); break;
-                    case "TEXCOORD": sb.Append(string.Format("{0} {1}   ", texCoords[index].X, texCoords[index].Y).Replace(",", ".")); break;
-                    case "TANGENT": sb.Append(string.Format("{0} {1} {2} {3}   ", vertexTangents[index].X, vertexTangents[index].Y, vertexTangents[index].Z, vertexTangents[index].W).Replace(",", ".")); break;
-                    default: break;
-                }
-            }
-            return sb.ToString();
         }
 
         public void SetShaderRef(Rsc5Shader shader)
         {
             ShaderRef = shader;
-
             if (shader != null)
             {
-
                 switch (new JenkHash(shader.ShaderName.Value))
                 {
-                    #region default
-                    case 0xe4df46d5://"default"
-                    case 0x2f4b79d0://"default_spec"
-                    case 0xd4156c86://"default_detail"
-                    case 0x15406984://"default_tnt"
-                    case 0xc9aac531://"default_um"
-                    case 0xeaabbc5a://"default_terrain_wet"
-                        SetupDefaultShader(shader);
-                        break;
-                    #endregion
-                    #region normal
-                    case 0x4f485502://"normal"
-                    case 0x38dd00df://"normal_spec"
-                    case 0xa6dd8d99://"normal_spec_detail_tnt"
-                    case 0x5fb135d1://"normal_spec_pxm"
-                    case 0x464a2606://"normal_spec_reflect_emissivenight"
-                    case 0xd7c59e09://"normal_spec_detail"
-                    case 0xf829494a://"normal_reflect"
-                    case 0x1510ebe7://"normal_decal"
-                    case 0x6473cd91://"normal_spec_decal_pxm"
-                    case 0x6cd4735b://"normal_spec_tnt"
-                    case 0x1c1c2570://"normal_spec_decal"
-                    case 0x19074229://"normal_detail"
-                    case 0x1b147031://"normal_tnt"
-                    case 0x2143cd55://"normal_spec_reflect"
-                    case 0x27a1bdb0://"normal_cubemap_reflect"
-                    case 0xbfb3a6d2://"normal_spec_cubemap_reflect"
-                    case 0x938e49f1://"normal_decal_tnt"
-                    case 0xac8c0806://"normal_um"
-                    case 0x6fbf8acf://"normal_um_tnt"
-                    case 0x4697ea6f://"normal_spec_wrinkle"
-                    case 0x71bacc0d://"normal_spec_decal_tnt"
-                    case 0x5a242d91://"normal_diffspec_detail_dpm_tnt"
-                    case 0x698b18e5://"normal_diffspec"
-                    case 0x7a5b66f3://"normal_diffspec_detail"
-                    case 0xb50b181d://"normal_diffspec_detail_dpm"
-                    case 0x5f270f50://"normal_spec_detail_dpm_vertdecal_tnt"
-                    case 0x848f3c54://"normal_reflect_decal"
-                    case 0x12a99bc9://"normal_spec_detail_dpm"
-                    case 0x9843e682://"normal_diffspec_tnt"
-                    case 0x126d79a2://"normal_spec_um"
-                    case 0xbaac9b33://"normal_spec_dpm"
-                    case 0x002195ab://"normal_decal_pxm"
-                    case 0xd503eed2://"normal_pxm"
-                    case 0xdd131a87://"normal_detail_dpm"
-                    case 0xe3417217://"normal_spec_decal_detail"
-                    case 0xaa650daf://"normal_spec_emissive"
-                    case 0xc63d63f8://"normal_spec_pxm_tnt"
-                    case 0x2f8bc40d://"normal_spec_batch"
-                    case 0x4bb15898://"normal_spec_detail_dpm_tnt"
-                    case 0x2248a6bf://"normal_diffspec_detail_tnt"
-                    case 0x7c11bcba://"normal_terrain_wet"
-                    case 0xfc64670a://"normal_pxm_tnt"
-                    case 0x955e9c3c://"normal_spec_decal_nopuddle"
-                    case 0x0099a5d5://"normal_decal_pxm_tnt"
-                    case 0xf5d7a727://"normal_spec_reflect_decal"
-                        SetupDefaultShader(shader);
-                        break;
-                    #endregion
-                    #region spec
-                    case 0x7204a391://"spec"
-                    case 0xed86862a://"spec_reflect"
-                    case 0xa4f28a79://"spec_decal"
-                    case 0xbf4b354a://"spec_tnt"
-                    case 0x48eb3653://"spec_reflect_decal"
-                    case 0x75b0706e://"spec_twiddle_tnt"
-                        SetupDefaultShader(shader);
-                        break;
-                    #endregion
-                    #region decal
-                    case 0xf08729d4://"decal"
-                    case 0xc8d38fcc://"decal_normal_only"
-                    case 0x14e49f72://"decal_tnt"
-                    case 0x37c6e600://"decal_glue"
-                    case 0xe8f01193://"decal_spec_only"
-                    case 0x1f98bd87://"decal_emissive_only"
-                    case 0xd94d6305://"decal_dirt"
-                    case 0x1ab91784://"decal_diff_only_um"
-                    case 0xd5738c1b://"decal_emissivenight_only"
-                    case 0xae556d0e://"decal_amb_only"
-                    case 0x56a60f25://"decal_shadow_only"
-                        SetupDefaultShader(shader);
-                        break;
-                    #endregion
-                    #region cutout
-                    case 0x4fa432a7://"cutout_fence"
-                    case 0x063762cf://"cutout_fence_normal"
-                    case 0x56a2ae25://"cutout_hard"
-                        SetupDefaultShader(shader);
-                        break;
-                    #endregion
-                    #region emissive
-                    case 0x8f245469://"emissive"
-                    case 0xb08c6435://"emissivenight"
-                    case 0xe3a69ef4://"emissive_speclum"
-                    case 0xb44fd60e://"emissive_additive_alpha"
-                    case 0x0c3a3e76://"emissivestrong"
-                    case 0x15c92c35://"emissive_tnt"
-                    case 0x92c006a9://"emissive_clip"
-                    case 0x21abe462://"emissivenight_geomnightonly"
-                    case 0x97b4896e://"emissive_additive_uv_alpha"
-                        SetupDefaultShader(shader);
-                        break;
-                    #endregion
-                    #region parallax
-                    case 0x20c330f5://"parallax"
-                    case 0xa9c79955://"parallax_specmap"
-                        SetupDefaultShader(shader);
-                        break;
-                    #endregion
-                    #region reflect
-                    case 0x98bc393e://"reflect"
-                    case 0x45f9ed91://"reflect_decal"
-                        SetupDefaultShader(shader);
-                        break;
-                    #endregion
-                    #region mirror
-                    case 0x0b316929://"mirror_default"
-                    case 0xfe999a18://"mirror_decal"
-                    case 0x6020a5f6://"mirror_crack"
-                        SetupDefaultShader(shader);
-                        break;
-                    #endregion
-                    #region ped
-                    case 0x34d90761://"ped"
-                    case 0x297b46e9://"ped_default"
-                    case 0x66d4abf7://"ped_fur"
-                    case 0x603f1257://"ped_wrinkle"
-                    case 0x4221fa89://"ped_hair_spiked"
-                    case 0x934fa33f://"ped_hair_cutout_alpha"
-                    case 0xcfdc0d22://"ped_decal"
-                    case 0x44789aa6://"ped_alpha"
-                    case 0x1e2ec776://"ped_cloth"
-                    case 0x6d77de1b://"ped_decal_exp"
-                    case 0xdb41829e://"ped_enveff"
-                    case 0x117e38ad://"ped_default_enveff"
-                    case 0x512410f2://"ped_wrinkle_cs"
-                    case 0xccdf1b33://"ped_decal_nodiff"
-                    case 0x936879cc://"ped_default_cloth"
-                    case 0x846c045e://"ped_wrinkle_cloth"
-                    case 0xa91dbbce://"ped_palette"
-                    case 0x1c92a859://"ped_default_palette"
-                    case 0x4c10b625://"ped_decal_decoration"
-                    case 0x9baf37fa://"ped_nopeddamagedecals"
-                    case 0x243d02ae://"ped_default_mp"
-                    case 0x83fb2c58://"ped_wrinkle_enveff"
-                    case 0x9bbed9d0://"ped_wrinkle_cloth_enveff"
-                    case 0xaa0cc812://"ped_cloth_enveff"
-                    case 0x6f83f1e2://"ped_emissive"
-                        SetupDefaultShader(shader);
-                        break;
-                    #endregion
-                    #region cloth
-                    case 0x5b8159ec://"cloth_default"
-                    case 0xbdc29ccc://"cloth_normal_spec"
-                    case 0x95536566://"cloth_spec_alpha"
-                    case 0xc92cbed1://"cloth_normal_spec_tnt"
-                        SetupDefaultShader(shader);
-                        break;
-                    #endregion
-                    #region weapon
-                    case 0x8676a645://"weapon_normal_spec_tnt"
-                    case 0x5ff02c23://"weapon_normal_spec_detail_palette"
-                    case 0x2098ad32://"weapon_normal_spec_cutout_palette"
-                    case 0x3dc5551f://"weapon_normal_spec_alpha"
-                    case 0x59b24d3d://"weapon_emissivestrong_alpha"
-                    case 0x9905a1ed://"weapon_normal_spec_palette"
-                    case 0x71a93f43://"weapon_normal_spec_detail_tnt"
-                    case 0x642cfd79://"weapon_emissive_tnt"
-                        SetupDefaultShader(shader);
-                        break;
-                    #endregion
-                    #region vehicle
-                    case 0x1d5f09ce://"vehicle_tire"
-                    case 0xf9fb7331://"vehicle_paint1"
-                    case 0x2327939b://"vehicle_paint1_enveff"
-                    case 0xede85b0b://"vehicle_paint2"
-                    case 0x0fe76347://"vehicle_paint2_enveff"
-                    case 0xe029bf8e://"vehicle_paint3"
-                    case 0xec8e929d://"vehicle_paint3_enveff"
-                    case 0x982de28e://"vehicle_paint3_lvr"
-                    case 0xc0cb80d2://"vehicle_paint4"
-                    case 0xaba4513d://"vehicle_paint4_enveff"
-                    case 0x72d0ac88://"vehicle_paint4_emissive"
-                    case 0xe498076b://"vehicle_paint5_enveff"
-                    case 0xa17c4234://"vehicle_paint6"
-                    case 0xc30069b8://"vehicle_paint6_enveff"
-                    case 0x953229a0://"vehicle_paint7"
-                    case 0x6e94ccc6://"vehicle_paint7_enveff"
-                    case 0x86598bef://"vehicle_paint8"
-                    case 0x77f6ef2a://"vehicle_paint9"
-                    case 0xd963b58b://"vehicle_mesh"
-                    case 0xed5d39c0://"vehicle_mesh_enveff"
-                    case 0xa62a444e://"vehicle_mesh2_enveff"
-                    case 0xc9866cc2://"vehicle_vehglass_inner"
-                    case 0xf5579485://"vehicle_interior"
-                    case 0x2a92aee4://"vehicle_interior2"
-                    case 0x0a853c1a://"vehicle_shuts"
-                    case 0xe515a6e7://"vehicle_lightsemissive"
-                    case 0xffe6fbea://"vehicle_badges"
-                    case 0x8a7a2bef://"vehicle_licenseplate"
-                    case 0x0f8bd089://"vehicle_dash_emissive"
-                    case 0x7c98d207://"vehicle_vehglass"
-                    case 0x79218a98://"vehicle_dash_emissive_opaque"
-                    case 0x60d16e80://"vehicle_detail"
-                    case 0x1fa3ecee://"vehicle_detail2"
-                    case 0x57fd87b6://"vehicle_decal"
-                    case 0x7a016de7://"vehicle_decal2"
-                    case 0x2a996272://"vehicle_blurredrotor"
-                    case 0xd387e65d://"vehicle_blurredrotor_emissive"
-                    case 0xedbc397a://"vehicle_basic"
-                    case 0x833b47f2://"vehicle_emissive_opaque"
-                    case 0x5e1a9cb5://"vehicle_emissive_alpha"
-                    case 0x39960ea5://"vehicle_track"
-                    case 0x2932ddcc://"vehicle_track_ammo"
-                    case 0x84fb9684://"vehicle_track_emissive"
-                    case 0xf36cfb59://"vehicle_track2"
-                    case 0x0fa9ece2://"vehicle_track2_emissive"
-                    case 0x9341b630://"vehicle_cloth"
-                    case 0x5c4bce0d://"vehicle_cloth2"
-                    case 0x2ce663ab://"vehicle_generic"
-                    case 0x2239ab26://"vehicle_cutout"
-                        SetupDefaultShader(shader);
-                        break;
-                    #endregion
-                    #region sky
-                    case 0xbd37f63e://"sky_system"
-                    case 0xe013c993://"clouds_animsoft"
-                    case 0x727a5985://"clouds_altitude"
-                    case 0x68f5078b://"clouds_fast"
-                    case 0x1f9fb43b://"clouds_anim"
-                    case 0xf45250cd://"clouds_soft"
-                    case 0x3672ee6d://"clouds_fog"
-                        SetupSkyShader(shader);
-                        break;
-                    #endregion
-                    #region water
-                    case 0x07569ca0://"water_fountain"
-                    case 0xe585594f://"water_shallow"
-                    case 0x38b8a4bb://"water_river"
-                    case 0x81cc67b3://"water_riverocean"
-                    case 0xdb72e78f://"water_riverlod"
-                    case 0xc01539a0://"water_terrainfoam"
-                    case 0x489b68b7://"water_poolenv"
-                    case 0x0b273b78://"water_riverfoam"
-                    case 0x938e5d80://"water_rivershallow"
-                        SetupDefaultShader(shader);
-                        break;
-                    #endregion
-                    #region glass
-                    case 0x85aba20b://"glass_env"
-                    case 0xc5098ee2://"glass_pv_env"
-                    case 0x629c08dc://"glass_displacement"
-                    case 0xa587608a://"glass_normal_spec_reflect"
-                    case 0xd9f8c9bf://"glass"
-                    case 0x1a910b87://"glass_emissive"
-                    case 0x706a3722://"glass_pv"
-                    case 0xa9a6eb84://"glass_spec"
-                    case 0xb680ab5c://"glass_reflect"
-                    case 0xb8c7819b://"glass_breakable"
-                    case 0x451700e5://"glass_emissivenight"
-                        SetupDefaultShader(shader);
-                        break;
-                    #endregion
-                    #region grass
-                    case 0x72623394://"grass"
-                    case 0x3627511f://"grass_fur"
-                    case 0xdaa2be7f://"grass_fur_mask"
-                    case 0x10d73576://"grass_batch"
-                        SetupGrassShader(shader);
-                        break;
-                    #endregion
-                    #region trees
-                    case 0xa157712e://"trees_lod"
-                    case 0x646a7334://"trees_lod_tnt"
-                    case 0x5791780f://"trees"
-                    case 0x78b69914://"trees_tnt"
-                    case 0xe31afeb8://"trees_normal"
-                    case 0x970ad6ac://"trees_normal_spec"
-                    case 0x0aa15ef3://"trees_normal_diffspec"
-                    case 0x2e42b9e2://"trees_normal_spec_tnt"
-                    case 0x4fa7bbcd://"trees_normal_diffspec_tnt"
-                    case 0xb60ae4d9://"trees_shadow_proxy"
-                    case 0x6fc19de0://"trees_lod2" //this probably needs its own billboard shader
-                        SetupTreesShader(shader);
-                        break;
-                    #endregion
-                    #region terrain
-                    case 0x08327e14://"terrain_cb_w_4lyr_lod"
-                    case 0x26f44b20://"terrain_cb_w_4lyr_2tex_blend_pxm_spm"
-                    case 0x9727947c://"terrain_cb_w_4lyr_2tex_blend_lod"
-                    case 0xf4b9c22c://"terrain_cb_w_4lyr_pxm"
-                    case 0xb5dc8364://"terrain_cb_w_4lyr"
-                    case 0x9b081dc2://"terrain_cb_w_4lyr_spec_pxm"
-                    case 0x943081a5://"terrain_cb_w_4lyr_2tex_blend_pxm"
-                    case 0x8a0b759d://"terrain_cb_w_4lyr_2tex_blend"
-                    case 0xcab475d5://"terrain_cb_w_4lyr_pxm_spm"
-                    case 0x26894ef4://"terrain_cb_w_4lyr_spec"
-                    case 0xb989de51://"terrain_cb_w_4lyr_2tex"
-                    case 0x8f3df5bd://"terrain_cb_4lyr_2tex"
-                    case 0xec585e67://"terrain_cb_w_4lyr_cm_pxm_tnt"
-                    case 0x18e4a4a5://"terrain_cb_w_4lyr_cm_tnt"
-                    case 0x119d5b03://"terrain_cb_w_4lyr_cm"
-                    case 0xfd51e359://"terrain_cb_w_4lyr_spec_int"
-                    case 0x8355bdd9://"terrain_cb_4lyr"
-                    case 0x708f32fa://"terrain_cb_w_4lyr_2tex_pxm"
-                    case 0xf98200c6://"terrain_cb_w_4lyr_cm_pxm"
-                    case 0xe8aa4c60://"terrain_cb_w_4lyr_spec_int_pxm"
-                    case 0x2caafe59://"blend_2lyr"
-                        SetupTerrainShader(shader);
-                        break;
-                    #endregion
-                    #region misc
-                    case 0x01605013://"cable"
-                    case 0xb8f9baf0://"radar"
-                    case 0x4ba72c6f://"ptfx_model"
-                    case 0xe5d7af85://"cpv_only"
-                    case 0x3d88f3f5://"minimap"
-                    case 0xe05f1a42://"distance_map"
-                    case 0xb0f74d23://"albedo_alpha"
-                        SetupDefaultShader(shader);
-                        break;
-                    #endregion
                     default:
                         SetupDefaultShader(shader);
                         break;
                 }
-
 
                 var bucket = shader.DrawBucket;
                 switch (bucket)
@@ -963,10 +548,8 @@ namespace CodeX.Games.MCLA.RSC5
         {
             SetDefaultShader();
             ShaderInputs = Shader.CreateShaderInputs();
-            ShaderInputs.SetFloat(0xDF918855, 1.0f);//"BumpScale"
-            ShaderInputs.SetUInt32(0x249983FD, 5); //"ParamsMapConfig"
+            ShaderInputs.SetFloat(0xDF918855, 1.0f); //"BumpScale"
             ShaderInputs.SetFloat(0x4D52C5FF, 1.0f); //"AlphaScale"
-            ShaderInputs.SetFloat4(0x1C2824ED, Vector4.One);//"NoiseSettings"
 
             if (s == null || s.Params == null)
                 return;
@@ -974,8 +557,6 @@ namespace CodeX.Games.MCLA.RSC5
             Textures = new Texture[5];
             var sfresnel = 0.96f;
             var sintensitymult = 0.3f;
-            var sfalloffmult = 50.0f;
-            var sintmask = 1.0f;
 
             for (int p = 0; p < s.Params.Length; p++)
             {
@@ -987,7 +568,6 @@ namespace CodeX.Games.MCLA.RSC5
                     {
                         switch (parm.Hash)
                         {
-                            #region used textures
                             case 0xF1FE2B71://diffusesampler
                             case 0x50022388://platebgsampler
                             case 0x1cf5b657://texturesamp
@@ -1002,249 +582,10 @@ namespace CodeX.Games.MCLA.RSC5
                             case 0x608799C6://specsampler
                                 Textures[2] = tex;
                                 break;
-                            case 0x485F22B0://flowsampler
-                            case 0x991ECEBE://fogsampler
-                            case 0xC2B08918://foamsampler
-                                if (Textures[0] == null) Textures[0] = tex;
-                                break;
-                            case 0xca4299e4://detailsampler
-                                Textures[3] = tex;
-                                break;
-                            case 0xf648a067://tintpalettesampler
-                                tex.Sampler = TextureSampler.Create(TextureSamplerFilter.Point, SharpDX.Direct3D11.TextureAddressMode.Wrap);
-                                Textures[4] = tex;
-                                ShaderInputs.SetUInt32(0x2905BED7, 1);//"ColourTintMode"
-                                break;
-                            #endregion
-                            #region unused textures
-                            case 0x88cc3d90://lookupsampler
-                            case 0xf165e62b://heightsampler
-                            case 0xc5bbae28://environmentsampler
-                            case 0x037eb699://diffuseextrasampler
-                            case 0x86cb389d://wrinklemasksampler_0
-                            case 0xd4a3d449://wrinklemasksampler_1
-                            case 0xb0660bce://wrinklemasksampler_2
-                            case 0xbda82652://wrinklemasksampler_3
-                            case 0x883768d9://wrinklesampler_a
-                            case 0x09bbebe0://wrinklesampler_b
-                            case 0x0ad3a268://diffusesampler2
-                            case 0x2f0b625e://volumesampler
-                            case 0x92bc3625://noisesampler
-                            case 0x7f354429://anisonoisespecsampler
-                            case 0xbbf891f0://snowsampler
-                            case 0x0be242c5://wrinklemasksampler_4
-                            case 0x1dbbe678://wrinklemasksampler_5
-                            case 0xab98831e://texturesamplerdiffpal
-                            case 0xb1dd9ffc://gmirrorcracksampler
-                            case 0x7e9a27fe://dirtsampler
-                            case 0x7a141f5c://fontsampler
-                            case 0xbb302c18://fontnormalsampler
-                            case 0x0294945c://snowsampler0
-                            case 0x11a73281://snowsampler1
-                            case 0x70e23e69://"bumpsampler2"
-                            case 0xbc38845d://??? blank_normal
-                            case 0x55393736://???  lowrider_lvr_1  (vehicle_paint3_lvr)
-                                break;
-                            #endregion
-                            default:
-                                break;
                         }
                     }
                 }
-                else
-                {
-
-                    switch (parm.Hash)
-                    {
-                        #region default
-                        case 0xf6712b81://"bumpiness"
-                            ShaderInputs.SetFloat(0xDF918855, parm.Vector.X);//"BumpScale"
-                            break;
-                        case 0x27b9b2fa://"specularfresnel"         //~0.3-1, low for metals, ~0.96 for nonmetals
-                            sfresnel = parm.Vector.X;
-                            break;
-                        case 0xf418334f://"specularintensitymult"   //0-1, final multiplier?
-                            sintensitymult = parm.Vector.X;
-                            break;
-                        case 0x87744680://"specularfalloffmult"     //10-150+?, higher is shinier
-                            sfalloffmult = parm.Vector.X;
-                            break;
-                        case 0xff11711d://"specmapintmask"          //always 1?
-                            sintmask = parm.Vector.X;
-                            break;
-                        case 0x5eebed48://"emissivemultiplier"
-                            ShaderInputs.SetFloat(0x83DDF493, FloatUtil.Saturate(parm.Vector.X * 0.025f));//"EmissiveMult"
-                            break;
-                        case 0x32dd9ff5://"wetnessmultiplier"       //indication of porosity?
-                        case 0xb51e2e8f://"detailsettings"
-                        case 0xe9437406://"hardalphablend"
-                        case 0x4620a35d://"usetessellation"
-                        case 0xba54c190://"globalanimuv1"
-                        case 0xd79bfc1e://"globalanimuv0"
-                        case 0x948a54f2://"matmaterialcolorscale"
-                        case 0xfdd796cf://"tintpaletteselector"
-                        case 0x0e710045://"parallaxselfshadowamount"
-                        case 0x13ba4503://"heightbias"
-                        case 0x38757622://"heightscale"
-                        case 0x3bc8669f://"reflectivepower"
-                        case 0xc72ea263://"umglobaloverrideparams"
-                        case 0x21ffda1a://"umglobalparams"
-                        case 0xb3f978f0://"specdesaturateexponent"
-                        case 0x2ab72b48://"specdesaturateintensity"
-                        case 0x73529a7c://"tessellationmultiplier"
-                        case 0x81db4c55://"parallaxscalebias"
-                        case 0xdbb6bf5b://"ambientdecalmask"
-                            break;
-                        #endregion
-                        #region radar
-                        case 0x614ed177://"clippingplane"
-                        case 0x5a7625df://"diffusecol"
-                            break;
-                        #endregion;
-                        #region cable
-                        case 0xc5574322://"alphatestvalue"
-                        case 0xd4108f2c://"gcableparams"
-                        case 0xf5d26f89://"gviewproj"
-                        case 0x07de6684://"shader_cableemissive"
-                        case 0x974c6f03://"shader_cableambient"
-                        case 0x06e11655://"shader_cablediffuse2"
-                        case 0x6ae0586a://"shader_cablediffuse"
-                        case 0x01fb89df://"shader_windamount"
-                        case 0x8ff24649://"shader_fadeexponent"
-                        case 0x84a43fbb://"shader_radiusscale"
-                            break;
-                        #endregion
-                        #region glass
-                        case 0xb84d48a2://"decaltint"
-                        case 0xc7503fa9://"crackdecalbumpalphathreshold"
-                        case 0x80773567://"crackdecalbumpamount"
-                        case 0xcbdbf631://"crackedgebumpamount"
-                        case 0x2b8ea03b://"crackdecalbumptilescale"
-                        case 0x1d5b899b://"crackedgebumptilescale"
-                        case 0x5106c3fb://"brokenspecularcolor"
-                        case 0x345a4189://"brokendiffusecolor"
-                        case 0x4552bd35://"displparams"
-                            break;
-                        #endregion
-                        #region mirror
-                        case 0x1d9dfdb6://"gmirrordebugparams"
-                        case 0x707c72c5://"gmirrorbounds"
-                        case 0x3ad6afa7://"gmirrordistortionamount"
-                        case 0x5d1b34f4://"gmirrorcrackamount"
-                            break;
-                        #endregion
-                        #region dirt
-                        case 0x3e95fa90://"dirtdecalmask"
-                            break;
-                        #endregion
-                        #region weapon
-                        case 0x28e1926b://"specular2color"
-                        case 0xea3526e6://"specular2colorintensity"
-                        case 0x257df714://"specular2factor"
-                        case 0x9d226f7c://"paletteselector"
-                            break;
-                        #endregion
-                        #region wrinkle
-                        case 0x49187ebc://"wrinklemaskstrengths3"
-                        case 0x008f6da7://"wrinklemaskstrengths2"
-                        case 0xee05c894://"wrinklemaskstrengths1"
-                        case 0xdc5ba540://"wrinklemaskstrengths0"
-                            break;
-                        #endregion
-                        #region ped
-                        case 0x1a06bf4b://"envefffatthickness"
-                        case 0xee2fc969://"stubblecontrol"
-                        case 0xcff5eadf://"furbendparams"
-                        case 0x1a6b71d3://"furglobalparams"
-                        case 0x947c2a14://"furattencoef"
-                        case 0xf0017cb5://"furaoblend"
-                        case 0x7f644b1b://"furstiffness"
-                        case 0xb85f80b0://"furselfshadowmin"
-                        case 0x3c20327a://"furnoiseuvscale"
-                        case 0x553e1d35://"furlength"
-                        case 0x0f21cc6b://"furmaxlayers"
-                        case 0xb3485fe4://"furminlayers"
-                        case 0x6063ce32://"ordernumber"
-                        case 0x15a413a7://"anisotropicalphabias"
-                        case 0xcefe3244://"specularnoisemapuvscalefactor"
-                        case 0x63c2fc31://"anisotropicspecularcolour"
-                        case 0x1dccadc4://"anisotropicspecularexponent"
-                        case 0x17f0c457://"anisotropicspecularintensity"
-                            break;
-                        #endregion
-                        #region water
-                        case 0xe9c969fb://"fogcolor"
-                        case 0xebdba3f6://"specularfalloff"
-                        case 0xa95fc535://"specularintensity"
-                        case 0xd3cd3e65://"ripplescale"
-                        case 0xb9470b30://"ripplebumpiness"
-                        case 0x45e94323://"ripplespeed"
-                        case 0xaef7b610://"heightopacity"
-                        case 0x28c2377e://"wavemovement"
-                        case 0x1074f838://"waterheight"
-                        case 0x88e19e2f://"waveoffset"
-                            break;
-                        #endregion
-                        #region distance_map (signs)
-                        case 0xb3a79c9a://"fillcolor"
-                            break;
-                        #endregion
-                        #region batch
-                        case 0x407f8395://"glodfadetilescale"
-                        case 0x9eb9f4b4://"glodfadepower"
-                        case 0xc28f4fc7://"glodfaderange"
-                        case 0x742c34cb://"glodfadestartdist"
-                        case 0x5d82554d://"vecbatchaabbmin"
-                                        //case 0xfd3d498c://"gscalerange"
-                                        //case 0xa186f243://"vecbatchaabbdelta"
-                            break;
-                        #endregion
-                        #region vehicle
-                        case 0xdac8f5e7://"envefftextileuv"
-                        case 0x90f4fd1b://"enveffscale"
-                        case 0xa114f369://"enveffthickness"
-                        case 0xa2e041b8://"specular2color_dirlerp"
-                        case 0x44546346://"dirtcolor"
-                        case 0xec247f19://"dirtlevelmod"
-                        case 0x185f047c://"matdiffusecolor"
-                        case 0x7be0df5b://"matwheelworldviewproj"
-                        case 0xbd720b18://"matwheelworld"
-                        case 0xf38696b0://"tyredeformparams2"
-                        case 0x5dc44eb2://"tyredeformparams"
-                        case 0x505f2850://"damagedwheeloffsets"
-                        case 0x0041e541://"damagetextureoffset"
-                        case 0x168b499d://"damagemultiplier"
-                        case 0x84f7d5d9://"boundradius"
-                        case 0xf948e930://"dimmersetpacked"
-                        case 0x455bbba5://"distepsilonscalemin"
-                        case 0x601e5d15://"distmapcenterval"
-                        case 0x0572eb1b://"fontnormalscale"
-                        case 0x6e12f49e://"licenseplatefonttint"
-                        case 0xb3c19d6b://"licenseplatefontextents"
-                        case 0x4dadde1a://"numletters"
-                        case 0x59495f93://"lettersize"
-                        case 0x339b7281://"letterindex2"
-                        case 0x6aee612a://"letterindex1"
-                        case 0x6a99768c://"diffuse2specmod"
-                        case 0x5e0e088c://"matdiffusecolor2"
-                        case 0x5549d131://"spectextileuv"
-                        case 0xa7d8c84b://"diffusetextileuv"
-                        case 0xe019fd7a://"trackanimuv"
-                        case 0xd9000d9f://???
-                        case 0xed3f35ee://???
-                        case 0x3d19b44d://???
-                            break;
-                        #endregion
-
-                        default:
-                            break;
-                    }
-                }
             }
-
-            ShaderInputs.SetFloat(0xDA9702A9, FloatUtil.Saturate(sintensitymult * (1.0f - ((sfresnel - 0.1f) / 0.896f))));//"MeshMetallicity"
-            ShaderInputs.SetFloat(0x92176B1A, FloatUtil.Saturate(0.0f));// ((sfalloffmult)-10.0f) / 500.0f));//"MeshSmoothness"
-            ShaderInputs.SetFloat(0x57C22E45, FloatUtil.Saturate(sintensitymult));//"MeshParamsMult"
 
             var db = s.DrawBucket;
             if (db == 2)
@@ -1311,7 +652,6 @@ namespace CodeX.Games.MCLA.RSC5
             {
                 ShaderInputs.SetUInt32(0x26E8F6BB, 1); //"NormalDoubleSided"  //flip normals if they are facing away from the camera
             }
-
         }
 
         private void SetupTerrainShader(Rsc5Shader s)
@@ -1809,8 +1149,7 @@ namespace CodeX.Games.MCLA.RSC5
         }
     }
 
-    [TC(typeof(EXP))]
-    public class Rsc5IndexBuffer : Rsc5BlockBase
+    [TC(typeof(EXP))] public class Rsc5IndexBuffer : Rsc5BlockBase
     {
         public override ulong BlockLength => 96;
         public ulong VFT { get; set; } = 0x14061D158;
@@ -1865,8 +1204,8 @@ namespace CodeX.Games.MCLA.RSC5
         }
 
     }
-    [TC(typeof(EXP))]
-    public class Rsc5VertexBuffer : Rsc5BlockBase
+
+    [TC(typeof(EXP))] public class Rsc5VertexBuffer : Rsc5BlockBase
     {
         public override ulong BlockLength => 128;
         public ulong VFT { get; set; } = 0x14061D3F8;
@@ -2260,39 +1599,28 @@ namespace CodeX.Games.MCLA.RSC5
             VFT = reader.ReadUInt32();
             BlockMap = reader.ReadUInt32();
             Shaders = reader.ReadPtrArr<Rsc5Shader>();
+
+            if (Shaders.Items != null)
+            {
+                XapbFile.Textures ??= new List<Rsc5Texture>();
+                foreach (var shader in Shaders.Items)
+                {
+                    if (shader.Params == null) continue;
+                    foreach (var param in shader.Params)
+                    {
+                        if (param == null || param.Texture == null) continue;
+                        if (XapbFile.Textures.Contains(param.Texture)) continue;
+
+                        param.Texture.Format = TextureFormat.A8R8G8B8;
+                        XapbFile.Textures.Add(param.Texture);
+                    }
+                }
+            }
         }
 
         public override void Write(Rsc5DataWriter writer)
         {
             throw new NotImplementedException();
-        }
-
-        public void WriteXml(StringBuilder sb, int indent)
-        {
-            Xml.ValueTag(sb, indent, "Unknown30", "0");
-            Xml.OpenTag(sb, indent, "Shaders");
-
-            var shaders = Shaders.Items;
-            if (shaders != null)
-            {
-                indent += 2;
-                foreach (var v in shaders)
-                {
-                    Xml.OpenTag(sb, indent - 1, "Item");
-                    Xml.StringTag(sb, indent, "Name", v.ShaderFileName.Value);
-                    Xml.StringTag(sb, indent, "FileName", v.ShaderFileName.Value + ".sps");
-                    Xml.ValueTag(sb, indent, "RenderBucket", v.DrawBucket.ToString());
-                    Xml.OpenTag(sb, indent, "Parameters");
-
-                    foreach (var p in v.Params)
-                    {
-                        p.WriteXml(sb, indent + 1);
-                    }
-                    Xml.CloseTag(sb, indent, "Parameters");
-                    Xml.CloseTag(sb, indent - 1, "Item");
-                }
-            }
-            Xml.CloseTag(sb, indent, "Shaders");
         }
     }
 
@@ -2364,7 +1692,7 @@ namespace CodeX.Games.MCLA.RSC5
                 switch (p.Type)
                 {
                     case 0: //texture
-                        p.Texture = reader.ReadBlock<Rsc5TextureBase>(ptrs[i]);
+                        p.Texture = reader.ReadBlock<Rsc5Texture>(ptrs[i]);
                         break;
                     case 1: //vector4
                         p.Vector = reader.ReadVector4(ptrs[i]);
@@ -2388,58 +1716,17 @@ namespace CodeX.Games.MCLA.RSC5
         }
     }
 
-    [TC(typeof(EXP))]
-    public class Rsc5ShaderParameter
+    [TC(typeof(EXP))] public class Rsc5ShaderParameter
     {
         public JenkHash Hash { get; set; }
         public byte Type { get; set; } //0: texture, 1: vector4, 2+: vector4 array
         public Vector4 Vector { get; set; }
         public Vector4[] Array { get; set; }
-        public Rsc5TextureBase Texture { get; set; }
+        public Rsc5Texture Texture { get; set; }
 
         public override string ToString()
         {
             return Hash.ToString() + ": " + ((Type == 0) ? ("texture: " + Texture?.ToString() ?? "(none)") : ((Type > 1) ? ("array: count " + Type.ToString()) : ("vector4: " + Vector.ToString())));
-        }
-
-        public void WriteXml(StringBuilder sb, int indent)
-        {
-            if (Hash.Str == "colors")
-                return;
-
-            var otstr = "Item name=\"" + Hash.ToString() + "\" type=\"" + ((Rsc5ShaderParamType)Type).ToString() + "\"";
-            switch (Type)
-            {
-                case (byte)Rsc5ShaderParamType.Texture:
-                    var name = Texture?.Name ?? "";
-                    if (name != "")
-                    {
-                        if (name.EndsWith(".dds"))
-                            name = name.Replace(".dds", "");
-                        if (name.StartsWith("memory:$"))
-                        {
-                            int index = name.LastIndexOf(":") + 1;
-                            name = name.Remove(0, index);
-                        }
-                        Xml.OpenTag(sb, indent, otstr);
-                        Xml.StringTag(sb, indent + 1, "Name", Xml.Escape(name.ToLower()));
-                        Xml.CloseTag(sb, indent, "Item");
-                    }
-                    break;
-
-                case (byte)Rsc5ShaderParamType.Vector:
-                    Xml.SelfClosingTag(sb, indent, otstr + " " + FloatUtil.GetVector4XmlString(Vector));
-                    break;
-
-                default:
-                    Xml.OpenTag(sb, indent, otstr);
-                    foreach (var vec in Array)
-                    {
-                        Xml.SelfClosingTag(sb, indent + 1, "Value " + FloatUtil.GetVector4XmlString(vec));
-                    }
-                    Xml.CloseTag(sb, indent, "Item");
-                    break;
-            }
         }
 
         public enum Rsc5ShaderParamType : byte
