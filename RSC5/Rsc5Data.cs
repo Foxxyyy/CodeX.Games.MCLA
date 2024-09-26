@@ -520,6 +520,22 @@ namespace CodeX.Games.MCLA.RSC5
             reader.Position = Position;
             Items = reader.ReadArray<T>(Count);
             reader.Position = p;
+
+            static void swapArray<T>(T[] array, Func<T, T> swapFunc)
+            {
+                for (int i = 0; i < array.Length; i++)
+                    array[i] = swapFunc(array[i]);
+            }
+
+            //Swap endianness
+            if (Items is uint[] uints)
+            {
+                swapArray(uints, Rpf3Crypto.Swap);
+            }
+            else if (Items is JenkHash[] hashes)
+            {
+                swapArray(hashes, Rpf3Crypto.Swap);
+            }
         }
 
         public void Read(Rsc5DataReader reader, uint count)

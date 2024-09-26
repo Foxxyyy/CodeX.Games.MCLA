@@ -1,8 +1,8 @@
-﻿using CodeX.Core.Engine;
+﻿using System.Numerics;
+using System.Security.Cryptography;
+using CodeX.Core.Engine;
 using CodeX.Core.Numerics;
 using CodeX.Core.Utilities;
-using System.Numerics;
-using System.Security.Cryptography;
 
 namespace CodeX.Games.MCLA.RPF3
 {
@@ -74,6 +74,16 @@ namespace CodeX.Games.MCLA.RPF3
             return buffer;
         }
 
+        public static bool IsVirtualBase(int value)
+        {
+            return (value & VIRTUAL_BASE) == VIRTUAL_BASE;
+        }
+
+        public static bool IsPhysicalBase(int value)
+        {
+            return (value & PHYSICAL_BASE) == PHYSICAL_BASE;
+        }
+
         public static long RoundUp(long num, long multiple)
         {
             if (multiple == 0L)
@@ -92,6 +102,13 @@ namespace CodeX.Games.MCLA.RPF3
         }
 
         public static uint Swap(uint value)
+        {
+            var data = BitConverter.GetBytes(value);
+            Array.Reverse(data);
+            return BitConverter.ToUInt32(data, 0);
+        }
+
+        public static JenkHash Swap(JenkHash value)
         {
             var data = BitConverter.GetBytes(value);
             Array.Reverse(data);
@@ -145,6 +162,15 @@ namespace CodeX.Games.MCLA.RPF3
         public static Vector4 Swap(Vector4 vector)
         {
             return new Vector4(Swap(vector.X), Swap(vector.Y), Swap(vector.Z), Swap(vector.W));
+        }
+
+        public static Vector4[] Swap(Vector4[] vectors)
+        {
+            for (int i = 0; i < vectors.Length; i++)
+            {
+                vectors[i] = Swap(vectors[i]);
+            }
+            return vectors;
         }
 
         public static BoundingBox Swap(BoundingBox bb)
@@ -488,21 +514,14 @@ namespace CodeX.Games.MCLA.RPF3
             return values;
         }
 
-        public static byte[] ModifyLinearTexture(byte[] data, int width, int height, TextureFormat format)
+        public static byte[] UnswizzleXbox360Data(byte[] data, int width, int height, TextureFormat format)
         {
-            var buffer = new byte[data.Length];
-            int blockSizeRow = 0, texelPitch = 0;
-
+            int texelPitch, blockSizeRow;
             switch (format)
             {
                 case TextureFormat.L8:
-                    blockSizeRow = 1;
-                    texelPitch = 1;
-                    break;
                 case TextureFormat.A8R8G8B8:
-                    blockSizeRow = 1;
-                    texelPitch = 4;
-                    break;
+                    return data;
                 case TextureFormat.BC1:
                     blockSizeRow = 4;
                     texelPitch = 8;
@@ -512,25 +531,67 @@ namespace CodeX.Games.MCLA.RPF3
                     blockSizeRow = 4;
                     texelPitch = 16;
                     break;
+                default:
+                    throw new NotImplementedException("Unsupported format for compression");
             }
 
-            var blockWidth = width / blockSizeRow;
-            var blockHeight = height / blockSizeRow;
-            for (int j = 0; j < blockHeight; j++)
+            //Calculate block dimensions
+            static int getVirtualSize(int size)
             {
-                for (int i = 0; i < blockWidth; i++)
+                if ((size % 128 != 0) && size < 128)
                 {
-                    var blockOffset = j * blockWidth + i;
-                    var x = XGAddress2DTiledX(blockOffset, blockWidth, texelPitch);
-                    var y = XGAddress2DTiledY(blockOffset, blockWidth, texelPitch);
-                    var srcOffset = j * blockWidth * texelPitch + i * texelPitch;
-                    var destOffset = y * blockWidth * texelPitch + x * texelPitch;
-                    Array.Copy(data, srcOffset, buffer, destOffset, texelPitch);
+                    return 128;
+                }
+                return size;
+            }
+             
+            //Calculate virtual block dimensions
+            var virtualWidth = getVirtualSize(width);
+            var virtualHeight = getVirtualSize(height);
+            var virtualBlockWidth = virtualWidth / blockSizeRow;
+            var virtualBlockHeight = virtualHeight / blockSizeRow;
+            var unswizzledBuffer = new byte[data.Length];
+
+            //Perform unswizzling
+            for (int j = 0; j < virtualBlockHeight; j++)
+            {
+                for (int i = 0; i < virtualBlockWidth; i++)
+                {
+                    var blockOffset = j * virtualBlockWidth + i;
+                    var x = XGAddress2DTiledX(blockOffset, virtualBlockWidth, texelPitch);
+                    var y = XGAddress2DTiledY(blockOffset, virtualBlockWidth, texelPitch);
+
+                    var srcOffset = j * virtualBlockWidth * texelPitch + i * texelPitch; //Source offset from the swizzled texture data
+                    var destOffset = y * virtualBlockWidth * texelPitch + x * texelPitch; //Destination offset in the unswizzled buffer
+                    Array.Copy(data, srcOffset, unswizzledBuffer, destOffset, texelPitch);
                 }
             }
-            return buffer;
+
+            //Swap the DXT color & alpha bytes
+            SwapDXTData(unswizzledBuffer, virtualWidth, virtualHeight, format);
+
+            //If the texture uses virtual dimensions, remove the extra padding
+            if (width < 128 || height < 128)
+            {
+                //Fit the texture to the actual dimensions (width, height)
+                var actualBlockWidth = width / blockSizeRow;
+                var actualBlockHeight = height / blockSizeRow;
+                var trimmedBuffer = new byte[actualBlockWidth * actualBlockHeight * texelPitch];
+
+                //Copy the relevant part of the unswizzled buffer into a trimmed buffer
+                for (int j = 0; j < actualBlockHeight; j++)
+                {
+                    var srcOffset = j * virtualBlockWidth * texelPitch;
+                    var destOffset = j * actualBlockWidth * texelPitch;
+                    Array.Copy(unswizzledBuffer, srcOffset, trimmedBuffer, destOffset, actualBlockWidth * texelPitch);
+                }
+                unswizzledBuffer = trimmedBuffer;
+            }
+            return unswizzledBuffer;
         }
 
+        //Translates a linear texture memory offset to a 2D tiled X address
+        //Calculates the swizzled address by breaking the texture memory into tiles and reordering it
         public static int XGAddress2DTiledX(int offset, int width, int texelPitch)
         {
             int alignedWidth = (width + 31) & ~31;
@@ -548,6 +609,8 @@ namespace CodeX.Games.MCLA.RPF3
             return macro + micro;
         }
 
+        //Translates a linear texture memory offset to a 2D tiled Y address
+        //Calculates the swizzled address by breaking the texture memory into tiles and reordering it
         public static int XGAddress2DTiledY(int offset, int width, int texelPitch)
         {
             int alignedWidth = (width + 31) & ~31;
@@ -565,94 +628,8 @@ namespace CodeX.Games.MCLA.RPF3
             return macro + micro + ((offsetT & 16) >> 4);
         }
 
-        public static byte[] DecodeDXT1(byte[] data, int width, int height)
+        public static void SwapDXTData(byte[] data, int width, int height, TextureFormat format)
         {
-            byte[] pixData = new byte[width * height * 4];
-            int xBlocks = width / 4;
-            int yBlocks = height / 4;
-
-            for (int y = 0; y < yBlocks; y++)
-            {
-                for (int x = 0; x < xBlocks; x++)
-                {
-                    var blockDataStart = ((y * xBlocks) + x) * 8;
-                    var color0 = ((uint)data[blockDataStart + 0] << 8) + data[blockDataStart + 1];
-                    var color1 = ((uint)data[blockDataStart + 2] << 8) + data[blockDataStart + 3];
-                    uint code = BitConverter.ToUInt32(data, blockDataStart + 4);
-
-                    var r0 = (ushort)(8 * (color0 & 31));
-                    var g0 = (ushort)(4 * ((color0 >> 5) & 63));
-                    var b0 = (ushort)(8 * ((color0 >> 11) & 31));
-                    var r1 = (ushort)(8 * (color1 & 31));
-                    var g1 = (ushort)(4 * ((color1 >> 5) & 63));
-                    var b1 = (ushort)(8 * ((color1 >> 11) & 31));
-
-                    for (int k = 0; k < 4; k++)
-                    {
-                        var j = k ^ 1;
-                        for (int i = 0; i < 4; i++)
-                        {
-                            int pixDataStart = (width * (y * 4 + j) * 4) + ((x * 4 + i) * 4);
-                            uint codeDec = code & 0x3;
-
-                            switch (codeDec)
-                            {
-                                case 0:
-                                    pixData[pixDataStart + 0] = (byte)r0;
-                                    pixData[pixDataStart + 1] = (byte)g0;
-                                    pixData[pixDataStart + 2] = (byte)b0;
-                                    pixData[pixDataStart + 3] = 255;
-                                    break;
-                                case 1:
-                                    pixData[pixDataStart + 0] = (byte)r1;
-                                    pixData[pixDataStart + 1] = (byte)g1;
-                                    pixData[pixDataStart + 2] = (byte)b1;
-                                    pixData[pixDataStart + 3] = 255;
-                                    break;
-                                case 2:
-                                    pixData[pixDataStart + 3] = 255;
-                                    if (color0 > color1)
-                                    {
-                                        pixData[pixDataStart + 0] = (byte)((2 * r0 + r1) / 3);
-                                        pixData[pixDataStart + 1] = (byte)((2 * g0 + g1) / 3);
-                                        pixData[pixDataStart + 2] = (byte)((2 * b0 + b1) / 3);
-                                    }
-                                    else
-                                    {
-                                        pixData[pixDataStart + 0] = (byte)((r0 + r1) / 2);
-                                        pixData[pixDataStart + 1] = (byte)((g0 + g1) / 2);
-                                        pixData[pixDataStart + 2] = (byte)((b0 + b1) / 2);
-                                    }
-                                    break;
-                                case 3:
-                                    if (color0 > color1)
-                                    {
-                                        pixData[pixDataStart + 0] = (byte)((r0 + 2 * r1) / 3);
-                                        pixData[pixDataStart + 1] = (byte)((g0 + 2 * g1) / 3);
-                                        pixData[pixDataStart + 2] = (byte)((b0 + 2 * b1) / 3);
-                                        pixData[pixDataStart + 3] = 255;
-                                    }
-                                    else
-                                    {
-                                        pixData[pixDataStart + 0] = 0;
-                                        pixData[pixDataStart + 1] = 0;
-                                        pixData[pixDataStart + 2] = 0;
-                                        pixData[pixDataStart + 3] = 0;
-                                    }
-                                    break;
-                            }
-
-                            code >>= 2;
-                        }
-                    }
-                }
-            }
-            return pixData;
-        }
-
-        public static byte[] DecodeDXT5(byte[] data, int width, int height)
-        {
-            var pixData = new byte[width * height * 4];
             var xBlocks = width / 4;
             var yBlocks = height / 4;
 
@@ -660,125 +637,24 @@ namespace CodeX.Games.MCLA.RPF3
             {
                 for (int x = 0; x < xBlocks; x++)
                 {
-                    var blockDataStart = ((y * xBlocks) + x) * 16;
-                    var alphas = new uint[8];
-                    ulong alphaMask = 0;
+                    //Calculate the starting position of the block
+                    var blockDataStart = ((y * xBlocks) + x) * ((format == TextureFormat.BC1) ? 8 : 16);
 
-                    alphas[0] = data[blockDataStart + 1];
-                    alphas[1] = data[blockDataStart + 0];
-                    alphaMask |= data[blockDataStart + 6];
-                    alphaMask <<= 8;
-                    alphaMask |= data[blockDataStart + 7];
-                    alphaMask <<= 8;
-                    alphaMask |= data[blockDataStart + 4];
-                    alphaMask <<= 8;
-                    alphaMask |= data[blockDataStart + 5];
-                    alphaMask <<= 8;
-                    alphaMask |= data[blockDataStart + 2];
-                    alphaMask <<= 8;
-                    alphaMask |= data[blockDataStart + 3];
+                    //Swap the color & alpha bytes
+                    (data[blockDataStart + 1], data[blockDataStart + 0]) = (data[blockDataStart + 0], data[blockDataStart + 1]);
+                    (data[blockDataStart + 2], data[blockDataStart + 3]) = (data[blockDataStart + 3], data[blockDataStart + 2]);
+                    (data[blockDataStart + 4], data[blockDataStart + 5]) = (data[blockDataStart + 5], data[blockDataStart + 4]);
+                    (data[blockDataStart + 6], data[blockDataStart + 7]) = (data[blockDataStart + 7], data[blockDataStart + 6]);
 
-                    // 8-alpha or 6-alpha block
-                    if (alphas[0] > alphas[1])
+                    if (format == TextureFormat.BC3)
                     {
-                        // 8-alpha block: derive the other 6
-                        // Bit code 000 = alpha_0, 001 = alpha_1, others are interpolated.
-                        alphas[2] = (byte)((6 * alphas[0] + 1 * alphas[1] + 3) / 7);    // bit code 010
-                        alphas[3] = (byte)((5 * alphas[0] + 2 * alphas[1] + 3) / 7);    // bit code 011
-                        alphas[4] = (byte)((4 * alphas[0] + 3 * alphas[1] + 3) / 7);    // bit code 100
-                        alphas[5] = (byte)((3 * alphas[0] + 4 * alphas[1] + 3) / 7);    // bit code 101
-                        alphas[6] = (byte)((2 * alphas[0] + 5 * alphas[1] + 3) / 7);    // bit code 110
-                        alphas[7] = (byte)((1 * alphas[0] + 6 * alphas[1] + 3) / 7);    // bit code 111
-                    }
-                    else
-                    {
-                        // 6-alpha block.
-                        // Bit code 000 = alpha_0, 001 = alpha_1, others are interpolated.
-                        alphas[2] = (byte)((4 * alphas[0] + 1 * alphas[1] + 2) / 5);    // Bit code 010
-                        alphas[3] = (byte)((3 * alphas[0] + 2 * alphas[1] + 2) / 5);    // Bit code 011
-                        alphas[4] = (byte)((2 * alphas[0] + 3 * alphas[1] + 2) / 5);    // Bit code 100
-                        alphas[5] = (byte)((1 * alphas[0] + 4 * alphas[1] + 2) / 5);    // Bit code 101
-                        alphas[6] = 0x00;                                               // Bit code 110
-                        alphas[7] = 0xFF;                                               // Bit code 111
-                    }
-
-                    var alpha = new byte[4, 4];
-                    for (int i = 0; i < 4; i++)
-                    {
-                        for (int j = 0; j < 4; j++)
-                        {
-                            alpha[j, i] = (byte)alphas[alphaMask & 7];
-                            alphaMask >>= 3;
-                        }
-                    }
-
-                    var color0 = (ushort)((data[blockDataStart + 8] << 8) + data[blockDataStart + 9]);
-                    var color1 = (ushort)((data[blockDataStart + 10] << 8) + data[blockDataStart + 11]);
-                    var code = BitConverter.ToUInt32(data, blockDataStart + 8 + 4);
-                    var r0 = (ushort)(8 * (color0 & 31));
-                    var g0 = (ushort)(4 * ((color0 >> 5) & 63));
-                    var b0 = (ushort)(8 * ((color0 >> 11) & 31));
-                    var r1 = (ushort)(8 * (color1 & 31));
-                    var g1 = (ushort)(4 * ((color1 >> 5) & 63));
-                    var b1 = (ushort)(8 * ((color1 >> 11) & 31));
-
-                    for (int k = 0; k < 4; k++)
-                    {
-                        var j = k ^ 1;
-                        for (int i = 0; i < 4; i++)
-                        {
-                            int pixDataStart = (width * (y * 4 + j) * 4) + ((x * 4 + i) * 4);
-                            uint codeDec = code & 0x3;
-
-                            pixData[pixDataStart + 3] = alpha[i, j];
-
-                            switch (codeDec)
-                            {
-                                case 0:
-                                    pixData[pixDataStart + 0] = (byte)r0;
-                                    pixData[pixDataStart + 1] = (byte)g0;
-                                    pixData[pixDataStart + 2] = (byte)b0;
-                                    break;
-                                case 1:
-                                    pixData[pixDataStart + 0] = (byte)r1;
-                                    pixData[pixDataStart + 1] = (byte)g1;
-                                    pixData[pixDataStart + 2] = (byte)b1;
-                                    break;
-                                case 2:
-                                    if (color0 > color1)
-                                    {
-                                        pixData[pixDataStart + 0] = (byte)((2 * r0 + r1) / 3);
-                                        pixData[pixDataStart + 1] = (byte)((2 * g0 + g1) / 3);
-                                        pixData[pixDataStart + 2] = (byte)((2 * b0 + b1) / 3);
-                                    }
-                                    else
-                                    {
-                                        pixData[pixDataStart + 0] = (byte)((r0 + r1) / 2);
-                                        pixData[pixDataStart + 1] = (byte)((g0 + g1) / 2);
-                                        pixData[pixDataStart + 2] = (byte)((b0 + b1) / 2);
-                                    }
-                                    break;
-                                case 3:
-                                    if (color0 > color1)
-                                    {
-                                        pixData[pixDataStart + 0] = (byte)((r0 + 2 * r1) / 3);
-                                        pixData[pixDataStart + 1] = (byte)((g0 + 2 * g1) / 3);
-                                        pixData[pixDataStart + 2] = (byte)((b0 + 2 * b1) / 3);
-                                    }
-                                    else
-                                    {
-                                        pixData[pixDataStart + 0] = 0;
-                                        pixData[pixDataStart + 1] = 0;
-                                        pixData[pixDataStart + 2] = 0;
-                                    }
-                                    break;
-                            }
-                            code >>= 2;
-                        }
+                        (data[blockDataStart + 9], data[blockDataStart + 8]) = (data[blockDataStart + 8], data[blockDataStart + 9]);
+                        (data[blockDataStart + 11], data[blockDataStart + 10]) = (data[blockDataStart + 10], data[blockDataStart + 11]);
+                        (data[blockDataStart + 13], data[blockDataStart + 12]) = (data[blockDataStart + 12], data[blockDataStart + 13]);
+                        (data[blockDataStart + 15], data[blockDataStart + 14]) = (data[blockDataStart + 14], data[blockDataStart + 15]);
                     }
                 }
             }
-            return pixData;
         }
     }
 }

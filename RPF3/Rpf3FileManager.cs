@@ -48,7 +48,7 @@ namespace CodeX.Games.MCLA.RPF3
             InitFileType(".xat", "Action Tree", FileTypeIcon.Animation, FileTypeAction.ViewHex, false);
             InitFileType(".xpfl", "Particle Effects Library", FileTypeIcon.Animation, FileTypeAction.ViewHex, false);
             InitFileType(".xsd", "XSD File", FileTypeIcon.Library, FileTypeAction.ViewXml, false);
-            InitFileType(".xshp", "BitMap Texture", FileTypeIcon.Image, FileTypeAction.ViewTextures);
+            InitFileType(".xshp", "BitMap Texture", FileTypeIcon.Piece, FileTypeAction.ViewModels);
 
             InitFileType(".ppp", "Post-Processing Pipeline", FileTypeIcon.TextFile, FileTypeAction.ViewText, false);
             InitFileType(".mccp", "Midnight Club Checkpoint", FileTypeIcon.TextFile, FileTypeAction.ViewText, false);
@@ -296,12 +296,6 @@ namespace CodeX.Games.MCLA.RPF3
                 xtd.Load(data);
                 return xtd;
             }
-            if (entry.NameLower.EndsWith(".xshp"))
-            {
-                var xshp = new XshpFile(entry);
-                xshp.Load(data);
-                return xshp;
-            }
             return null;
         }
 
@@ -319,11 +313,17 @@ namespace CodeX.Games.MCLA.RPF3
                 xapb.Load(data);
                 return xapb;
             }
-            if (entry.NameLower.EndsWith(".xft"))
+            else if (entry.NameLower.EndsWith(".xft"))
             {
                 var xft = new XftFile(entry);
                 xft.Load(data);
                 return xft;
+            }
+            else if (entry.NameLower.EndsWith(".xshp"))
+            {
+                var xshp = new XshpFile(entry);
+                xshp.Load(data);
+                return xshp;
             }
             return null;
         }

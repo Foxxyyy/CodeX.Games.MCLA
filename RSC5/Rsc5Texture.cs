@@ -1,4 +1,5 @@
 ﻿using CodeX.Core.Engine;
+using CodeX.Core.Utilities;
 using CodeX.Games.MCLA.RPF3;
 using SharpDX.Direct3D11;
 
@@ -10,7 +11,7 @@ namespace CodeX.Games.MCLA.RSC5
         public Rsc5Ptr<Rsc5BlockMap> BlockMapPointer { get; set; }
         public uint ParentDictionary { get; set; } //Always 0 in file
         public uint UsageCount { get; set; } //Always 1 in file
-        public Rsc5Arr<uint> HashTable { get; set; }
+        public Rsc5Arr<JenkHash> HashTable { get; set; }
         public Rsc5PtrArr<Rsc5Texture> Textures { get; set; }
 
         public override void Read(Rsc5DataReader reader)
@@ -19,7 +20,7 @@ namespace CodeX.Games.MCLA.RSC5
             BlockMapPointer = reader.ReadPtr<Rsc5BlockMap>();
             ParentDictionary = reader.ReadUInt32();
             UsageCount = reader.ReadUInt32();
-            HashTable = reader.ReadArr<uint>();
+            HashTable = reader.ReadArr<JenkHash>();
             Textures = reader.ReadPtrArr<Rsc5Texture>();
         }
 
@@ -73,6 +74,11 @@ namespace CodeX.Games.MCLA.RSC5
         public override void Read(Rsc5DataReader reader)
         {
             base.Read(reader);
+            if (D3DBaseTexture.Item == null)
+            {
+                return;
+            }
+
             Stride = reader.ReadUInt16();
             TextureType = (Rsc5TextureType)reader.ReadByte();
             MipLevels = reader.ReadByte();
@@ -85,24 +91,17 @@ namespace CodeX.Games.MCLA.RSC5
 
             reader.Position = D3DBaseTexture.Item.FilePosition + 0x20;
             var d3dValue = reader.ReadInt32();
-            var baseAdress = d3dValue >> 0xC;
             var virtualW = GetVirtualSize(Width);
             var virtualH = GetVirtualSize(Height);
 
-            if ((d3dValue & Rpf3Crypto.VIRTUAL_BASE) == Rpf3Crypto.VIRTUAL_BASE)
-            {
-                var size = d3dValue & 0xFF;
-                reader.Position = (ulong)((d3dValue & 0xFFFFFF) - size + Rpf3Crypto.VIRTUAL_BASE);
-            }
-            else if ((d3dValue & Rpf3Crypto.PHYSICAL_BASE) == Rpf3Crypto.PHYSICAL_BASE)
+            if (Rpf3Crypto.IsVirtualBase(d3dValue) || Rpf3Crypto.IsPhysicalBase(d3dValue))
             {
                 var size = d3dValue & 0xFF;
                 reader.Position = (ulong)((d3dValue & 0xFFFFFF) - size + Rpf3Crypto.VIRTUAL_BASE);
             }
             else
             {
-                baseAdress = reader.VirtualSize;
-                reader.Position = (ulong)(baseAdress + Rpf3Crypto.VIRTUAL_BASE);
+                reader.Position = (ulong)(reader.VirtualSize + Rpf3Crypto.VIRTUAL_BASE);
             }
 
             if (reader.Position == Rpf3Crypto.VIRTUAL_BASE)
@@ -114,36 +113,8 @@ namespace CodeX.Games.MCLA.RSC5
             Size = CalcDataSize(virtualW, virtualH);
             Data = reader.ReadBytes(Size);
             Sampler = TextureSampler.Create(TextureSamplerFilter.Anisotropic, TextureAddressMode.Wrap);
-
-            if (Format == TextureFormat.A8R8G8B8)
-            {
-                return;
-            }
-
-            //Xbox 360 swizzling
-            UseVirtualDimensions = true;
-            Data = Rpf3Crypto.ModifyLinearTexture(Data, virtualW, virtualH, Format);
-
-            if (Format == TextureFormat.BC1)
-            {
-                Data = Rpf3Crypto.DecodeDXT1(Data, virtualW, virtualH);
-            }
-            else if (Format == TextureFormat.BC3)
-            {
-                Data = Rpf3Crypto.DecodeDXT5(Data, virtualW, virtualH);
-            }
-            else if (Format == TextureFormat.L8)
-            {
-                var temp = new byte[Data.Length * 4];
-                for (int index = 0; index < Data.Length; ++index)
-                {
-                    temp[index * 4] = Data[index];
-                    temp[index * 4 + 1] = Data[index];
-                    temp[index * 4 + 2] = Data[index];
-                    temp[index * 4 + 3] = byte.MaxValue;
-                }
-                Data = temp;
-            }
+            Data = Rpf3Crypto.UnswizzleXbox360Data(Data, Width, Height, Format);
+            Size = Data.Length; //In case of virtual dimensions, get the actual texture size
         }
 
         public override void Write(Rsc5DataWriter writer)
@@ -172,10 +143,9 @@ namespace CodeX.Games.MCLA.RSC5
 
         public static int GetVirtualSize(int size)
         {
-            if (size % 128 != 0)
+            if ((size % 128 != 0) && size < 128)
             {
-                size *= 2;
-                //size += 128 - size % 128;
+                return 128;
             }
             return size;
         }
@@ -236,9 +206,15 @@ namespace CodeX.Games.MCLA.RSC5
             Unknown_14h = reader.ReadUInt32();
             TextureName = reader.ReadStr();
             D3DBaseTexture = reader.ReadPtr<Rsc5BlockMap>();
+
+            Name = TextureName.Value?.Replace(".dds", "").Replace("pack:/", "") ?? null;
+            if (D3DBaseTexture.Item == null)
+            {
+                return;
+            }
+
             Width = reader.ReadUInt16();
             Height = reader.ReadUInt16();
-            Name = TextureName.Value;
         }
 
         public virtual void Write(Rsc5DataWriter writer)

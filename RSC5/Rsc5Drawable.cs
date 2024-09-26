@@ -3,24 +3,24 @@ using CodeX.Core.Numerics;
 using CodeX.Core.Shaders;
 using CodeX.Core.Utilities;
 using System.Numerics;
-using System.Text;
 using CodeX.Games.MCLA.RPF3;
 using TC = System.ComponentModel.TypeConverterAttribute;
 using EXP = System.ComponentModel.ExpandableObjectConverter;
 using CodeX.Games.MCLA.Files;
+using System.Diagnostics;
 
 namespace CodeX.Games.MCLA.RSC5
 {
     [TC(typeof(EXP))] public class Rsc5AmbientDrawablePed : Rsc5FileBase //.xapb
     {
         public override ulong BlockLength => 64;
-        public uint BlockMapPointer { get; set; }
+        public Rsc5Ptr<Rsc5BlockMap> BlockMap { get; set; }
         public Rsc5Ptr<Rsc5DrawableBase> Drawable { get; set; }
 
         public override void Read(Rsc5DataReader reader)
         {
             base.Read(reader);
-            BlockMapPointer = reader.ReadUInt32();
+            BlockMap = reader.ReadPtr<Rsc5BlockMap>();
             Drawable = reader.ReadPtr<Rsc5DrawableBase>();
         }
 
@@ -30,7 +30,30 @@ namespace CodeX.Games.MCLA.RSC5
         }
     }
 
-    [TC(typeof(EXP))] public class Rsc5Drawable : Rsc5SimpleDrawableBase
+    [TC(typeof(EXP))] public class Rsc5City : Rsc5FileBase //.xshp located in resources/city
+    { 
+        public override ulong BlockLength => 40;
+        public Rsc5Ptr<Rsc5BlockMap> BlockMap { get; set; }
+        public Rsc5Ptr<Rsc5TextureDictionary> Dictionary { get; set; }
+        public uint Unknown_Ch { get; set; }
+        public Rsc5Ptr<Rsc5SimpleDrawableBase> Drawable { get; set; }
+
+        public override void Read(Rsc5DataReader reader)
+        {
+            base.Read(reader);
+            BlockMap = reader.ReadPtr<Rsc5BlockMap>();
+            Dictionary = reader.ReadPtr<Rsc5TextureDictionary>();
+            Unknown_Ch = reader.ReadUInt32();
+            Drawable = reader.ReadPtr<Rsc5SimpleDrawableBase>();
+        }
+
+        public override void Write(Rsc5DataWriter writer)
+        {
+            throw new NotImplementedException();
+        }
+    }
+
+    [TC(typeof(EXP))] public class Rsc5Drawable : Rsc5LodBase
     {
         public Rsc5Str NameRef { get; set; }
 
@@ -215,7 +238,7 @@ namespace CodeX.Games.MCLA.RSC5
         }
     }
 
-    [TC(typeof(EXP))] public class Rsc5SimpleDrawableBase : Piece, Rsc5Block
+    [TC(typeof(EXP))] public class Rsc5LodBase : Piece, Rsc5Block
     {
         public virtual ulong BlockLength => 160;
         public ulong FilePosition { get; set; }
@@ -261,6 +284,97 @@ namespace CodeX.Games.MCLA.RSC5
                     geom.ShaderInputs = geom.Shader.CreateShaderInputs();
                 }
             }
+        }
+    }
+
+    [TC(typeof(EXP))] public class Rsc5SimpleDrawableBase : Piece, Rsc5Block
+    {
+        public virtual ulong BlockLength => 160;
+        public ulong FilePosition { get; set; }
+        public bool IsPhysical => false;
+
+        public uint VFT { get; set; } = 0x00595E80;
+        public Rsc5Ptr<Rsc5BlockMap> BlockMap { get; set; }
+        public Rsc5Ptr<Rsc5ShaderGroup> ShaderGroup { get; set; }
+        public Rsc5Ptr<Rsc5DrawableLodMap> Lod { get; set; }
+
+        public virtual void Read(Rsc5DataReader reader)
+        {
+            VFT = reader.ReadUInt32();
+            BlockMap = reader.ReadPtr<Rsc5BlockMap>();
+            ShaderGroup = reader.ReadPtr<Rsc5ShaderGroup>();
+            Lod = reader.ReadPtr<Rsc5DrawableLodMap>();
+
+            Lods = new[] { Lod.Item };
+            if (Lod.Item != null)
+            {
+                Lod.Item.LodDist = 9999f;
+            }
+
+            UpdateAllModels();
+            AssignGeometryShaders();
+            UpdateBounds();
+
+            var center = (BoundingBox.Minimum + BoundingBox.Maximum) / 2;
+            var radius = Vector3.Distance(center, BoundingBox.Maximum);
+            BoundingSphere = new BoundingSphere(center, radius);
+        }
+
+        public virtual void Write(Rsc5DataWriter writer)
+        {
+            throw new NotImplementedException();
+        }
+
+        public void AssignGeometryShaders()
+        {
+            //Assign embedded textures to mesh for rendering
+            if ((ShaderGroup.Item?.Shaders.Items != null) && (AllModels != null))
+            {
+                var shaders = ShaderGroup.Item?.Shaders.Items;
+                for (int i = 0; i < AllModels.Length; i++)
+                {
+                    var model = AllModels[i];
+                    if (model.Meshes != null)
+                    {
+                        for (int j = 0; j < model.Meshes.Length; j++)
+                        {
+                            if (model.Meshes[j] is Rsc5DrawableGeometry mesh)
+                            {
+                                var shader = (mesh.ShaderID < shaders.Length) ? shaders[mesh.ShaderID] : null;
+                                mesh.SetShaderRef(shader);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    [TC(typeof(EXP))] public class Rsc5DrawableLodMap : Rsc5DrawableLod, Rsc5Block
+    {
+        public new ulong BlockLength => 32;
+        public new ulong FilePosition { get; set; }
+        public new bool IsPhysical => false;
+
+        public uint VFT { get; set; } = 0x005960EC;
+        public Rsc5Ptr<Rsc5BlockMap> BlockMap { get; set; }
+        public uint ParentDictionary { get; set; }
+        public uint RefCount { get; set; } = 1;
+        public Rsc5Arr<uint> Hashes { get; set; }
+
+        public new void Read(Rsc5DataReader reader)
+        {
+            VFT = reader.ReadUInt32();
+            BlockMap = reader.ReadPtr<Rsc5BlockMap>();
+            ParentDictionary = reader.ReadUInt32();
+            RefCount = reader.ReadUInt32();
+            Hashes = reader.ReadArr<uint>();
+            base.Read(reader);
+        }
+
+        public new void Write(Rsc5DataWriter writer)
+        {
+            throw new NotImplementedException();
         }
     }
 
@@ -356,14 +470,19 @@ namespace CodeX.Games.MCLA.RSC5
                         geom.AABB = (boundsData != null) ? ((boundsData.Length > 1) && ((i + 1) < boundsData.Length)) ? boundsData[i + 1] : boundsData[0] : new BoundingBox4();
                         geom.BoundingBox = new BoundingBox(geom.AABB.Min.XYZ(), geom.AABB.Max.XYZ());
                         geom.BoundingSphere = new BoundingSphere(geom.BoundingBox.Center, geom.BoundingBox.Size.Length() * 0.5f);
+                        
+                        if (boundsData == null)
+                        {
+                            geom.UpdateBounds();
+                        }
                     }
                 }
             }
 
             Meshes = Geometries.Items;
-            RenderInMainView = (RenderMaskFlags & 0x1) > 0;
-            RenderInShadowView = (RenderMaskFlags & 0x2) > 0;
-            RenderInEnvmapView = (RenderMaskFlags & 0x4) > 0;
+            RenderInMainView = true;
+            RenderInShadowView = true;
+            RenderInEnvmapView = true;
         }
 
         public void Write(Rsc5DataWriter writer)
@@ -551,12 +670,8 @@ namespace CodeX.Games.MCLA.RSC5
             ShaderInputs.SetFloat(0xDF918855, 1.0f); //"BumpScale"
             ShaderInputs.SetFloat(0x4D52C5FF, 1.0f); //"AlphaScale"
 
-            if (s == null || s.Params == null)
-                return;
-
-            Textures = new Texture[5];
-            var sfresnel = 0.96f;
-            var sintensitymult = 0.3f;
+            if (s == null || s.Params == null) return;
+            Textures = new Texture[3];
 
             for (int p = 0; p < s.Params.Length; p++)
             {
@@ -1511,7 +1626,7 @@ namespace CodeX.Games.MCLA.RSC5
         }
     }
 
-    public class Rsc5Bone : Bone, Rsc5Block
+    [TC(typeof(EXP))] public class Rsc5Bone : Bone, Rsc5Block
     {
         public ulong BlockLength => 224;
         public ulong FilePosition { get; set; }
@@ -1585,10 +1700,9 @@ namespace CodeX.Games.MCLA.RSC5
         }
     }
 
-    [TC(typeof(EXP))]
-    public class Rsc5ShaderGroup : Rsc5BlockBase
+    [TC(typeof(EXP))] public class Rsc5ShaderGroup : Rsc5BlockBase
     {
-        public override ulong BlockLength => 12;
+        public override ulong BlockLength => 16;
         public ulong VFT { get; set; }
         public uint BlockMap { get; set; }
         public Rsc5Ptr<Rsc5TextureDictionary> TextureDictionary { get; set; }
@@ -1610,8 +1724,6 @@ namespace CodeX.Games.MCLA.RSC5
                     {
                         if (param == null || param.Texture == null) continue;
                         if (XapbFile.Textures.Contains(param.Texture)) continue;
-
-                        param.Texture.Format = TextureFormat.A8R8G8B8;
                         XapbFile.Textures.Add(param.Texture);
                     }
                 }
@@ -1695,10 +1807,10 @@ namespace CodeX.Games.MCLA.RSC5
                         p.Texture = reader.ReadBlock<Rsc5Texture>(ptrs[i]);
                         break;
                     case 1: //vector4
-                        p.Vector = reader.ReadVector4(ptrs[i]);
+                        p.Vector = Rpf3Crypto.Swap(reader.ReadVector4(ptrs[i]));
                         break;
                     default: //array
-                        p.Array = reader.ReadArray<Vector4>(p.Type, ptrs[i]);
+                        p.Array = Rpf3Crypto.Swap(reader.ReadArray<Vector4>(p.Type, ptrs[i]));
                         break;
                 }
                 Params[i] = p;
