@@ -33,3 +33,5 @@ After that, [download the files](https://github.com/Foxxyyy/CodeX.Games.RDR1/rel
 
 # Random Pictures
 ![Screenshot](Files/Properties/mcla.png)
+![Screenshot](Files/Properties/peds.png)
+![Screenshot](Files/Properties/terrain.png)
