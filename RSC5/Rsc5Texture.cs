@@ -93,21 +93,7 @@ namespace CodeX.Games.MCLA.RSC5
             var d3dValue = reader.ReadInt32();
             var virtualW = GetVirtualSize(Width);
             var virtualH = GetVirtualSize(Height);
-
-            if (Rpf3Crypto.IsVirtualBase(d3dValue) || Rpf3Crypto.IsPhysicalBase(d3dValue))
-            {
-                var size = d3dValue & 0xFF;
-                reader.Position = (ulong)((d3dValue & 0xFFFFFF) - size + Rpf3Crypto.VIRTUAL_BASE);
-            }
-            else
-            {
-                reader.Position = (ulong)(reader.VirtualSize + Rpf3Crypto.VIRTUAL_BASE);
-            }
-
-            if (reader.Position == Rpf3Crypto.VIRTUAL_BASE)
-            {
-                reader.Position += (ulong)reader.VirtualSize;
-            }
+            reader.Position = (ulong)Rpf3Crypto.GetBaseAdressFromDirect3D(d3dValue, reader);
 
             Format = ConvertToEngineFormat((Rsc5TextureFormat)(d3dValue & byte.MaxValue));
             Size = CalcDataSize(virtualW, virtualH);

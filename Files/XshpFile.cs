@@ -1,4 +1,5 @@
 ﻿using CodeX.Core.Engine;
+using CodeX.Core.Numerics;
 using CodeX.Core.Utilities;
 using CodeX.Forms.Utilities;
 using CodeX.Games.MCLA.RPF3;
@@ -10,11 +11,19 @@ namespace CodeX.Games.MCLA.Files
     {
         public Rsc5Bitmap Bitmap;
         public Rsc5City City;
+        public Rsc5TextureDictionary CityTextures;
+
+        public JenkHash Hash;
+        public string Name;
 
         public XshpFile(Rpf3FileEntry file) : base(file)
         {
             City = null;
+            CityTextures = null;
             Bitmap = null;
+
+            Name = file?.NameLower;
+            Hash = JenkHash.GenHash(file?.NameLower ?? "");
         }
 
         public override void Load(byte[] data)
@@ -35,6 +44,10 @@ namespace CodeX.Games.MCLA.Files
             else if (ident == Rsc5XshpType.BITMAP_VINYL || ident == Rsc5XshpType.BITMAP_TIRE)
             {
                 Bitmap = r.ReadBlock<Rsc5Bitmap>();
+            }
+            else if (ident == Rsc5XshpType.CITY_TEXTURE)
+            {
+                CityTextures = r.ReadBlock<Rsc5TextureDictionary>();
             }
 
             Pieces = new Dictionary<JenkHash, Piece>();
@@ -89,6 +102,32 @@ namespace CodeX.Games.MCLA.Files
                     Pieces.Add(e.ShortNameLower, drawable);
                 }
             }
+            else if (CityTextures != null)
+            {
+                var hashes = CityTextures.HashTable.Items;
+                var textures = CityTextures.Textures.Items;
+                var txp = new TexturePack(e) { Textures = new Dictionary<string, Texture>() };
+
+                if (textures != null && hashes != null)
+                {
+                    for (int i = 0; i < textures.Length; i++)
+                    {
+                        var tex = textures[i];
+                        var hash = hashes[i];
+
+                        tex.Name ??= hash.ToString();
+                        txp.Textures[hash.ToString()] = tex;
+                        tex.Pack = txp;
+                    }
+                }
+
+                var texCount = txp.Textures?.Count ?? 0;
+                if (texCount > 0)
+                {
+                    Piece = new Piece { TexturePack = txp };
+                    Pieces.Add(e.NameLower, Piece);
+                }
+            }
         }
 
         public override byte[] Save()
@@ -102,6 +141,8 @@ namespace CodeX.Games.MCLA.Files
         BITMAP_VINYL = 0x40CC5600,
         BITMAP_TIRE = 0x9CC65600,
         CITY = 0x10B75C00,
+        CITY_TEXTURE = 0xEC505900,
+        FILESET = 0x509A5C00,
         UNKNOWN = 0x3CAF5C00
     }
 }

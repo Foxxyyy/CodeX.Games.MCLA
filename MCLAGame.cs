@@ -42,7 +42,7 @@ namespace CodeX.Games.MCLA
 
         public override Setting[] GetMapSettings()
         {
-            return null;
+            return new[] { MCLAMap.EnabledSetting, MCLAMap.StartPositionSetting };
         }
     }
 }

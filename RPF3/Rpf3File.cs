@@ -1002,6 +1002,9 @@ namespace CodeX.Games.MCLA.RPF3
                     case Rpf3ResourceType.Flash:
                         Name += ".xsf";
                         break;
+                    case Rpf3ResourceType.Drawable:
+                        Name += ".drawable";
+                        break;
                 }
             }
         }
@@ -1077,10 +1080,10 @@ namespace CodeX.Games.MCLA.RPF3
         Texture = 9, //xtd
         Flash = 27, //xsf
         Fragment = 63, //xft
+        Drawable = 102 //unknown
 
         //xst, stringtable
         //xapk, animations
-        //?? = 102, meshes
         //xprp? //also in rdr1
     }
 }

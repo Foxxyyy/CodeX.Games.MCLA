@@ -3,6 +3,7 @@ using System.Security.Cryptography;
 using CodeX.Core.Engine;
 using CodeX.Core.Numerics;
 using CodeX.Core.Utilities;
+using CodeX.Games.MCLA.RSC5;
 
 namespace CodeX.Games.MCLA.RPF3
 {
@@ -10,6 +11,13 @@ namespace CodeX.Games.MCLA.RPF3
     {
         public const int VIRTUAL_BASE = 0x50000000;
         public const int PHYSICAL_BASE = 0x60000000;
+
+        static readonly Dictionary<byte, int> BaseAddresses = new()
+        {
+            { 0x50, VIRTUAL_BASE },
+            { 0x51, 0x51000000 },
+            { 0x52, 0x52000000 }
+        };
 
         static Aes AesAlg;
         static readonly byte[] AES_KEY = new byte[32]
@@ -82,6 +90,20 @@ namespace CodeX.Games.MCLA.RPF3
         public static bool IsPhysicalBase(int value)
         {
             return (value & PHYSICAL_BASE) == PHYSICAL_BASE;
+        }
+
+        public static int GetBaseAdressFromDirect3D(int d3dValue, Rsc5DataReader reader)
+        {
+            var phys = IsPhysicalBase(d3dValue);
+            var address = (d3dValue >> 24) & 0xFF;
+            var size = d3dValue & 0xFF;
+
+            BaseAddresses.TryGetValue((byte)address, out var mappedBase);
+            if (mappedBase == 0)
+            {
+                mappedBase = VIRTUAL_BASE;
+            }
+            return (d3dValue & 0xFFFFFF) - size + (phys ? reader.VirtualSize : 0) + mappedBase;
         }
 
         public static long RoundUp(long num, long multiple)
@@ -405,6 +427,21 @@ namespace CodeX.Games.MCLA.RPF3
             return new Vector4(vector.Y, vector.Z, vector.X, (vector.W == 0.0f) ? NaN() : vector.W);
         }
 
+        ///<summary>
+        ///Converts a <see cref="System.Numerics.Vector4" />[] from ZXYW to XYZW format.
+        ///</summary>
+        ///<param name="vector">The input Vector4[] in ZXYW format.</param>
+        ///<returns>A new Vector4[] in XYZW format.</returns>
+        public static Vector4[] ToXYZ(Vector4[] vector)
+        {
+            if (vector == null) return null;
+            for (int i = 0; i < vector.Length; i++)
+            {
+                vector[i] = ToXYZ(vector[i]);
+            }
+            return vector;
+        }
+
         ///<summary>Returns NaN as 0x0100807F (float.NaN = 0x0000C0FF).</summary>
         public static float NaN()
         {
@@ -544,7 +581,16 @@ namespace CodeX.Games.MCLA.RPF3
                 }
                 return size;
             }
-             
+
+            //Reverse every two bytes in the texture data
+            for (int i = 0; i < data.Length; i += 2)
+            {
+                if (i + 1 < data.Length)
+                {
+                    (data[i + 1], data[i]) = (data[i], data[i + 1]);
+                }
+            }
+
             //Calculate virtual block dimensions
             var virtualWidth = getVirtualSize(width);
             var virtualHeight = getVirtualSize(height);
@@ -566,9 +612,6 @@ namespace CodeX.Games.MCLA.RPF3
                     Array.Copy(data, srcOffset, unswizzledBuffer, destOffset, texelPitch);
                 }
             }
-
-            //Swap the DXT color & alpha bytes
-            SwapDXTData(unswizzledBuffer, virtualWidth, virtualHeight, format);
 
             //If the texture uses virtual dimensions, remove the extra padding
             if (width < 128 || height < 128)
@@ -626,35 +669,6 @@ namespace CodeX.Games.MCLA.RPF3
             int micro = (((offsetT & ((texelPitch << 6) - 1) & ~31) + ((offsetT & 15) << 1)) >> (3 + logBpp)) & ~1;
 
             return macro + micro + ((offsetT & 16) >> 4);
-        }
-
-        public static void SwapDXTData(byte[] data, int width, int height, TextureFormat format)
-        {
-            var xBlocks = width / 4;
-            var yBlocks = height / 4;
-
-            for (int y = 0; y < yBlocks; y++)
-            {
-                for (int x = 0; x < xBlocks; x++)
-                {
-                    //Calculate the starting position of the block
-                    var blockDataStart = ((y * xBlocks) + x) * ((format == TextureFormat.BC1) ? 8 : 16);
-
-                    //Swap the color & alpha bytes
-                    (data[blockDataStart + 1], data[blockDataStart + 0]) = (data[blockDataStart + 0], data[blockDataStart + 1]);
-                    (data[blockDataStart + 2], data[blockDataStart + 3]) = (data[blockDataStart + 3], data[blockDataStart + 2]);
-                    (data[blockDataStart + 4], data[blockDataStart + 5]) = (data[blockDataStart + 5], data[blockDataStart + 4]);
-                    (data[blockDataStart + 6], data[blockDataStart + 7]) = (data[blockDataStart + 7], data[blockDataStart + 6]);
-
-                    if (format == TextureFormat.BC3)
-                    {
-                        (data[blockDataStart + 9], data[blockDataStart + 8]) = (data[blockDataStart + 8], data[blockDataStart + 9]);
-                        (data[blockDataStart + 11], data[blockDataStart + 10]) = (data[blockDataStart + 10], data[blockDataStart + 11]);
-                        (data[blockDataStart + 13], data[blockDataStart + 12]) = (data[blockDataStart + 12], data[blockDataStart + 13]);
-                        (data[blockDataStart + 15], data[blockDataStart + 14]) = (data[blockDataStart + 14], data[blockDataStart + 15]);
-                    }
-                }
-            }
         }
     }
 }

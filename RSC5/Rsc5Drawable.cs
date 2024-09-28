@@ -404,7 +404,7 @@ namespace CodeX.Games.MCLA.RSC5
         public bool IsPhysical => false;
         public ulong VFT { get; set; }
         public Rsc5PtrArr<Rsc5DrawableGeometry> Geometries { get; set; } //m_Geometries
-        public Rsc5RawArr<BoundingBox4> BoundsData { get; set; } //m_AABBs, one for each geometry + one for the whole model (unless there's only one model)
+        public Rsc5RawArr<Vector4> BoundsData { get; set; } //m_AABBs, one for each geometry + one for the whole model (unless there's only one model)
         public Rsc5RawArr<ushort> ShaderMapping { get; set; } //m_ShaderIndex
         public uint SkeletonBinding { get; set; } //4th byte is bone index, 2nd byte for skin meshes
         public ushort RenderMaskFlags { get; set; } //m_SkinFlag, determine whether to render with the skinned draw path or not
@@ -445,7 +445,7 @@ namespace CodeX.Games.MCLA.RSC5
         {
             VFT = reader.ReadUInt32();
             Geometries = reader.ReadPtrArr<Rsc5DrawableGeometry>();
-            BoundsData = reader.ReadRawArrPtr<BoundingBox4>();
+            BoundsData = reader.ReadRawArrPtr<Vector4>();
             ShaderMapping = reader.ReadRawArrPtr<ushort>();
             SkeletonBinding = reader.ReadUInt32();
             RenderMaskFlags = reader.ReadUInt16();
@@ -459,7 +459,21 @@ namespace CodeX.Games.MCLA.RSC5
             if (geoms != null)
             {
                 var shaderMapping = ShaderMapping.Items;
-                var boundsData = (BoundsData.Items != null && BoundsData.Items.Length > 0) ? Rpf3Crypto.ToXYZ(Rpf3Crypto.Swap(BoundsData.Items)) : null;
+                var boundsData = (BoundingBox4[])null;
+                if (BoundsData.Items != null && BoundsData.Items.Length > 0)
+                {
+                    //MCLA prefers Vector4's with the W component as the size of the bounding box
+                    var vecs = Rpf3Crypto.Swap(BoundsData.Items);
+                    boundsData = new BoundingBox4[vecs.Length];
+
+                    for (int i = 0; i < vecs.Length; i++)
+                    {
+                        var v = vecs[i];
+                        var vMin = new Vector3(v.Z - v.W, v.X - v.W, v.Y - v.W);
+                        var vMax = new Vector3(v.Z + v.W, v.X + v.W, v.Y + v.W);
+                        boundsData[i] = new BoundingBox4(new Vector4(vMin, 0.0f), new Vector4(vMax, 0.0f));
+                    }
+                }
 
                 for (int i = 0; i < geoms.Length; i++)
                 {
@@ -470,7 +484,8 @@ namespace CodeX.Games.MCLA.RSC5
                         geom.AABB = (boundsData != null) ? ((boundsData.Length > 1) && ((i + 1) < boundsData.Length)) ? boundsData[i + 1] : boundsData[0] : new BoundingBox4();
                         geom.BoundingBox = new BoundingBox(geom.AABB.Min.XYZ(), geom.AABB.Max.XYZ());
                         geom.BoundingSphere = new BoundingSphere(geom.BoundingBox.Center, geom.BoundingBox.Size.Length() * 0.5f);
-                        
+
+                        //MCLA also has NULL AABBs sometimes, so we have to calculate the bounds manually
                         if (boundsData == null)
                         {
                             geom.UpdateBounds();
@@ -641,8 +656,12 @@ namespace CodeX.Games.MCLA.RSC5
             ShaderRef = shader;
             if (shader != null)
             {
-                switch (new JenkHash(shader.ShaderName.Value))
+                switch (new JenkHash(shader.ShaderName.ToString()))
                 {
+                    case 0xE4CB95DC: //CityTerrain
+                        SetupTerrainShader(shader);
+                        break;
+                    case 0xDAFA8999: //CityRoad
                     default:
                         SetupDefaultShader(shader);
                         break;
@@ -651,12 +670,12 @@ namespace CodeX.Games.MCLA.RSC5
                 var bucket = shader.DrawBucket;
                 switch (bucket)
                 {
-                    case 0: ShaderBucket = ShaderBucket.Solid; break;//solid
-                    case 1: ShaderBucket = ShaderBucket.Alpha1; break;//alpha 
-                    case 2: ShaderBucket = ShaderBucket.Decal1; break;//decal
-                    case 3: ShaderBucket = ShaderBucket.Alpha1; break;//cutout
-                    case 6: ShaderBucket = ShaderBucket.Alpha1; break;//water
-                    case 7: ShaderBucket = ShaderBucket.Alpha1; break;//glass
+                    case 0: ShaderBucket = ShaderBucket.Solid; break; //solid
+                    case 1: ShaderBucket = ShaderBucket.Alpha1; break; //alpha 
+                    case 2: ShaderBucket = ShaderBucket.Decal1; break; //decal
+                    case 3: ShaderBucket = ShaderBucket.Alpha1; break; //cutout
+                    case 6: ShaderBucket = ShaderBucket.Alpha1; break; //water
+                    case 7: ShaderBucket = ShaderBucket.Alpha1; break; //glass
                     default:
                         break;
                 }
@@ -707,59 +726,6 @@ namespace CodeX.Games.MCLA.RSC5
             {
                 var decalMasks = Vector4.One; //albedo, normal, params, irradiance
                 var decalMode = 1u;
-                switch (new JenkHash(s.ShaderName.Value))
-                {
-                    case 0xf08729d4://"decal"
-                    case 0x14e49f72://"decal_tnt"
-                    case 0x37c6e600://"decal_glue"
-                    case 0xd94d6305://"decal_dirt"
-                    case 0x1510ebe7://"normal_decal"
-                    case 0x938e49f1://"normal_decal_tnt"
-                    case 0x002195ab://"normal_decal_pxm"
-                    case 0x0099a5d5://"normal_decal_pxm_tnt"
-                    case 0x1c1c2570://"normal_spec_decal"
-                    case 0x6473cd91://"normal_spec_decal_pxm"
-                    case 0x71bacc0d://"normal_spec_decal_tnt"
-                    case 0xe3417217://"normal_spec_decal_detail"
-                    case 0x955e9c3c://"normal_spec_decal_nopuddle"
-                    case 0xf5d7a727://"normal_spec_reflect_decal"
-                    case 0x848f3c54://"normal_reflect_decal"
-                    case 0xa4f28a79://"spec_decal"
-                    case 0x48eb3653://"spec_reflect_decal"
-                    case 0x45f9ed91://"reflect_decal"
-                    case 0xc01539a0://"water_terrainfoam"
-                    case 0xcfdc0d22://"ped_decal"
-                    case 0x6d77de1b://"ped_decal_exp"
-                    case 0x4c10b625://"ped_decal_decoration"
-                    case 0xe05f1a42://"distance_map"
-                    case 0x4f485502://"normal"
-                    case 0x7a016de7://"vehicle_decal2"
-                        break;
-                    case 0x1ab91784://"decal_diff_only_um"
-                        decalMasks = new Vector4(1, 0, 0, 0);
-                        break;
-                    case 0xc8d38fcc://"decal_normal_only"
-                        decalMasks = new Vector4(0, 1, 0, 0);
-                        break;
-                    case 0xe8f01193://"decal_spec_only"
-                        decalMasks = new Vector4(0, 0, 1, 0);
-                        break;
-                    case 0xae556d0e://"decal_amb_only"
-                        decalMasks = new Vector4(0, 0, 0, 1);
-                        break;
-                    case 0x1f98bd87://"decal_emissive_only"
-                    case 0xd5738c1b://"decal_emissivenight_only" //is this right?
-                        decalMasks = new Vector4(1, 0, 0, 1);
-                        break;
-                    case 0xccdf1b33://"ped_decal_nodiff"
-                        decalMasks = new Vector4(0, 1, 1, 1);
-                        break;
-                    case 0x56a60f25://"decal_shadow_only"
-                        decalMasks = new Vector4(0, 0, 0, 1); //what is this exactly?
-                        break;
-                    default:
-                        break;
-                }
                 ShaderInputs.SetFloat4(0x5C3AB6E9, decalMasks); //"DecalMasks"
                 ShaderInputs.SetUInt32(0x0188ECE8, decalMode);  //"DecalMode"
             }
@@ -779,49 +745,10 @@ namespace CodeX.Games.MCLA.RSC5
             ShaderInputs.SetFloat4(0x401BDDBB, Vector4.One);//"UVLookupIndex"
             ShaderInputs.SetFloat4(0xA83AA336, new Vector4(0.0f));//"LODColourLevels" //actually tintPaletteSelector
 
-            uint blendMode = 1;
-            switch (new JenkHash(s.ShaderName.Value))
-            {
-                case 0x08327e14://"terrain_cb_w_4lyr_lod"
-                    blendMode = 1;
-                    break;
-                case 0xb989de51://"terrain_cb_w_4lyr_2tex"
-                case 0x8a0b759d://"terrain_cb_w_4lyr_2tex_blend"
-                case 0x9727947c://"terrain_cb_w_4lyr_2tex_blend_lod"
-                case 0x26f44b20://"terrain_cb_w_4lyr_2tex_blend_pxm_spm"
-                case 0x943081a5://"terrain_cb_w_4lyr_2tex_blend_pxm"
-                case 0x708f32fa://"terrain_cb_w_4lyr_2tex_pxm"
-                case 0xb5dc8364://"terrain_cb_w_4lyr"
-                case 0x26894ef4://"terrain_cb_w_4lyr_spec"
-                case 0x9b081dc2://"terrain_cb_w_4lyr_spec_pxm"
-                case 0xf4b9c22c://"terrain_cb_w_4lyr_pxm"
-                case 0xcab475d5://"terrain_cb_w_4lyr_pxm_spm"
-                case 0xfd51e359://"terrain_cb_w_4lyr_spec_int"
-                case 0xe8aa4c60://"terrain_cb_w_4lyr_spec_int_pxm"
-                    blendMode = 2;
-                    break;
-                case 0x119d5b03://"terrain_cb_w_4lyr_cm"
-                case 0xf98200c6://"terrain_cb_w_4lyr_cm_pxm"
-                    blendMode = 3;
-                    break;
-                case 0x18e4a4a5://"terrain_cb_w_4lyr_cm_tnt"
-                case 0xec585e67://"terrain_cb_w_4lyr_cm_pxm_tnt"
-                    blendMode = 4;
-                    break;
-                case 0x8355bdd9://"terrain_cb_4lyr"
-                case 0x8f3df5bd://"terrain_cb_4lyr_2tex"
-                case 0x2caafe59://"blend_2lyr"
-                    blendMode = 1;
-                    break;
-                default:
-                    break;
-            }
-            ShaderInputs.SetUInt32(0x9B920BD, blendMode);//"BlendMode"
+            ShaderInputs.SetUInt32(0x9B920BD, 1); //BlendMode
+            if (s == null || s.Params == null) return;
 
-            if (s == null || s.Params == null)
-                return;
-
-            Textures = new Texture[16]; //albedo(0-3); normal(0-3); params(0-3); masks; lodcolour; lodnorm; height;
+            Textures = new Texture[6]; //albedo(0-3); normal(0-3);
             for (int p = 0; p < s.Params.Length; p++)
             {
                 var parm = s.Params[p];
@@ -832,52 +759,24 @@ namespace CodeX.Games.MCLA.RSC5
                     {
                         switch (parm.Hash)
                         {
-                            case 0xd52b11df://texturesampler_layer0
+                            case 0xd52b11df: //diffusesamplera
                                 Textures[0] = tex;
                                 break;
-                            case 0x2420afd1://texturesampler_layer1
+                            case 0x2420afd1: //diffusesamplerb
                                 Textures[1] = tex;
                                 break;
-                            case 0x31934ab6://texturesampler_layer2
+                            case 0x31934ab6: //diffusesamplerc
                                 Textures[2] = tex;
                                 break;
-                            case 0x78b758fd://texturesampler_layer3
-                                Textures[3] = tex;
-                                break;
-                            case 0x3fff9563://bumpsampler_layer0
+                            case 0x3fff9563: //normalsamplera
                                 Textures[4] = tex;
                                 break;
-                            case 0x54cdbeff://bumpsampler_layer1
+                            case 0x54cdbeff: //normalsamplerb
                                 Textures[5] = tex;
                                 break;
-                            case 0xa3a2dca8://bumpsampler_layer2
+                            case 0xa3a2dca8: //normalsamplerc
                                 Textures[6] = tex;
                                 break;
-                            case 0xb1597815://bumpsampler_layer3
-                                Textures[7] = tex;
-                                break;
-                            case 0x2e8e5039://heightmapsamplerlayer0
-                                Textures[8] = tex;
-                                break;
-                            case 0x9936a58c://heightmapsamplerlayer1
-                                Textures[9] = tex;
-                                break;
-                            case 0x8be08ae0://heightmapsamplerlayer2
-                                Textures[10] = tex;
-                                break;
-                            case 0x85b0fe81://heightmapsamplerlayer3
-                                Textures[11] = tex;
-                                break;
-
-                            case 0x88cc3d90://lookupsampler
-                                Textures[12] = tex;
-                                ShaderInputs.SetUInt32(0xC1F6297F, 1);//"MasksMode"
-                                break;
-                            case 0xf648a067://tintpalettesampler
-                                tex.Sampler = TextureSampler.Create(TextureSamplerFilter.Point, SharpDX.Direct3D11.TextureAddressMode.Wrap);
-                                Textures[13] = tex;
-                                break;
-
                             default:
                                 break;
                         }
@@ -889,368 +788,8 @@ namespace CodeX.Games.MCLA.RSC5
                     switch (parm.Hash)
                     {
                         case 0xf6712b81://"bumpiness"
-                            ShaderInputs.SetFloat4(0x7CB163F5, new Vector4(parm.Vector.X));//"BumpScales"
+                            ShaderInputs.SetFloat4(0x7CB163F5, new Vector4(parm.Vector.X)); //BumpScales
                             break;
-                        case 0xbcf48c51://"materialwetnessmultiplier"
-                        case 0xad4c52e0://"bumpselfshadowamount"
-                        case 0xf418334f://"specularintensitymult"
-                        case 0x87744680://"specularfalloffmult"
-                        case 0x4620a35d://"usetessellation"
-                        case 0xbc710e59://"heightbias3"
-                        case 0x5b99b862://"heightscale3"
-                        case 0xc95fa836://"heightbias2"
-                        case 0x81de04ea://"heightscale2"
-                        case 0x30e17734://"heightbias1"
-                        case 0x7128637f://"heightscale1"
-                        case 0x2010d597://"heightbias0"
-                        case 0xa751cfd1://"heightscale0"
-                        case 0x0e710045://"parallaxselfshadowamount"
-                        case 0xf8a5b0da://"specintensityadjust"
-                        case 0x3f1564c7://"specularintensitymultspecmap"
-                        case 0x0d89b4ab://"specfalloffadjust"
-                        case 0xa3d8627a://"specularfalloffmultspecmap"
-                        case 0x32dd9ff5://"wetnessmultiplier"
-                        case 0xfdd796cf://"tintpaletteselector"
-                            break;
-                        default:
-                            break;
-                    }
-                }
-            }
-        }
-        private void SetupGrassShader(Rsc5Shader s)
-        {
-            SetDefaultShader();
-            ShaderInputs = Shader.CreateShaderInputs();
-            ShaderInputs.SetFloat(0xDF918855, 2.0f);//"BumpScale"
-            ShaderInputs.SetUInt32(0x249983FD, 5); //"ParamsMapConfig"
-            ShaderInputs.SetUInt32(0x2905BED7, 1); //"ColourTintMode"
-            ShaderInputs.SetFloat(0x4D52C5FF, 1.0f); //"AlphaScale"
-            ShaderInputs.SetFloat4(0x1C2824ED, Vector4.One);//"NoiseSettings"
-
-            if (s == null || s.Params == null)
-                return;
-
-            Textures = new Texture[3];
-            for (int p = 0; p < s.Params.Length; p++)
-            {
-                var parm = s.Params[p];
-                if (parm.Type == 0)
-                {
-                    var tex = parm.Texture;
-                    if (tex != null)
-                    {
-                        switch (parm.Hash)
-                        {
-                            case 0xF1FE2B71://diffusesampler
-                                Textures[0] = tex;
-                                break;
-
-
-                            //fur:
-                            case 0x46B7C64F://bumpsampler
-                                ShaderInputs.SetUInt32(0x2905BED7, 0); //"ColourTintMode" //TOTAL HACK to turn off tinting for grass fur
-                                Textures[1] = tex;
-                                break;
-                            case 0x608799C6://specsampler
-                                Textures[2] = tex;
-                                break;
-                            case 0x65e15377://comboheightsamplerfur01
-                            case 0xaea56292://comboheightsamplerfur23
-                            case 0x958eb755://comboheightsamplerfur45
-                            case 0x533d9fb8://comboheightsamplerfur67
-                            case 0xbd772afa://stipplesampler
-                            case 0xe23133b8://furmasksampler
-                            case 0xaf9c8381://diffusehfsampler
-                                break;
-                            default:
-                                break;
-                        }
-                    }
-                }
-                else
-                {
-
-                    switch (parm.Hash)
-                    {
-                        case 0x38ee77ab://"galphatocoveragescale"
-                            ShaderInputs.SetFloat(0x4D52C5FF, parm.Vector.X); //"AlphaScale"
-                            break;
-                        case 0x4d15c563://"shadowfalloff"
-                        case 0x38a2f7f5://"alphatest"
-                        case 0x377ec8ce://"alphascale"
-                        case 0xe557c30e://"_fakedgrassnormal"
-                        case 0xbc242376://"umovementparams"
-                        case 0xfd3ddac7://"fadealphalod2distfar0"
-                        case 0x4d2367d1://"fadealphalod2dist"
-                        case 0xd4623cc4://"fadealphalod1dist"
-                        case 0xd8d5c09f://"fadealphadistumtimer"
-                        case 0xba8b599e://"_vecvehcoll3r"
-                        case 0x776c535d://"_vecvehcoll3m"
-                        case 0x948b8da3://"_vecvehcoll3b"
-                        case 0xd0d40bc7://"_vecvehcoll2r"
-                        case 0x11d10dc0://"_vecvehcoll2m"
-                        case 0x5bf6a1f2://"_vecvehcoll2b"
-                        case 0x6da7468f://"_vecvehcoll1r"
-                        case 0xde702857://"_vecvehcoll1m"
-                        case 0xc6f87968://"_vecvehcoll1b"
-                        case 0xdb24a724://"_vecvehcoll0r"
-                        case 0x7a7965cf://"_vecvehcoll0m"
-                        case 0xcd3d0b51://"_vecvehcoll0b"
-                        case 0x499e4a30://"_veccollparams"
-                        case 0x83ecbf37://"_dimensionlod2"
-                        case 0x7a349c20://"vecplayerpos"
-                        case 0xe7e830c1://"veccamerapos"
-                        case 0xbce6048d://"groundcolor"
-                        case 0x51178072://"plantcolor"
-                        case 0x045667b9://"matgrasstransform"
-                            break;
-
-                        //fur:
-                        case 0xf6712b81://"bumpiness"
-                            ShaderInputs.SetFloat(0xDF918855, parm.Vector.X);//"BumpScale"
-                            break;
-                        case 0x2a670f69://"furshadow47"
-                        case 0x41d91335://"furshadow03"
-                        case 0xff245382://"furalphaclip47"
-                        case 0x114d742c://"furalphaclip03"
-                        case 0xf6dfe913://"furalphadistance"
-                        case 0x3582987d://"furuvscales"
-                        case 0x42ebbdcf://"furlayerparams"
-                        case 0x4620a35d://"usetessellation"
-                        case 0x32dd9ff5://"wetnessmultiplier"
-                        case 0xff11711d://"specmapintmask"
-                        case 0xf418334f://"specularintensitymult"
-                        case 0x87744680://"specularfalloffmult"
-                        case 0x27b9b2fa://"specularfresnel"
-                            break;
-
-                        //batch:
-                        case 0x407f8395://"glodfadetilescale"
-                        case 0x9eb9f4b4://"glodfadepower"
-                        case 0xc28f4fc7://"glodfaderange"
-                        case 0x742c34cb://"glodfadestartdist"
-                        case 0x92e7d306://?
-                        case 0x8409a33a://"galphatest"
-                        case 0x9827b3ed://"gwindbendscalevar"
-                        case 0x2a4b9dc7://"gwindbendingglobals"
-                        case 0xfd3d498c://"gscalerange"
-                        case 0xa186f243://"vecbatchaabbdelta"
-                        case 0x5d82554d://"vecbatchaabbmin"
-                            break;
-
-                        default:
-                            break;
-                    }
-                }
-            }
-        }
-        private void SetupTreesShader(Rsc5Shader s)
-        {
-            SetDefaultShader();
-            ShaderInputs = Shader.CreateShaderInputs();
-            ShaderInputs.SetFloat(0xDF918855, 2.0f);//"BumpScale"
-            ShaderInputs.SetUInt32(0x249983FD, 5); //"ParamsMapConfig"
-            ShaderInputs.SetFloat(0x4D52C5FF, 1.0f); //"AlphaScale"
-            ShaderInputs.SetFloat4(0x1C2824ED, Vector4.One);//"NoiseSettings"
-            //ShaderInputs.SetUInt32(0x26E8F6BB, 1); //"NormalDoubleSided"  //flip normals if they are facing away from the camera
-
-            if (s == null || s.Params == null)
-                return;
-
-            Textures = new Texture[5];
-            for (int p = 0; p < s.Params.Length; p++)
-            {
-                var parm = s.Params[p];
-                if (parm.Type == 0)
-                {
-                    var tex = parm.Texture;
-                    if (tex != null)
-                    {
-                        switch (parm.Hash)
-                        {
-                            case 0xF1FE2B71://diffusesampler
-                                Textures[0] = tex;
-                                break;
-                            case 0x46B7C64F://bumpsampler
-                                Textures[1] = tex;
-                                break;
-                            case 0x608799C6://specsampler
-                                Textures[2] = tex;
-                                break;
-                            case 0xf648a067://"tintpalettesampler"
-                                tex.Sampler = TextureSampler.Create(TextureSamplerFilter.Point, SharpDX.Direct3D11.TextureAddressMode.Wrap);
-                                Textures[4] = tex;
-                                ShaderInputs.SetUInt32(0x2905BED7, 1);//"ColourTintMode"
-                                break;
-                            default:
-                                break;
-                        }
-                    }
-                }
-                else
-                {
-
-                    switch (parm.Hash)
-                    {
-                        case 0xf6712b81://"bumpiness"
-                            ShaderInputs.SetFloat(0xDF918855, parm.Vector.X);//"BumpScale"
-                            break;
-                        case 0x377ec8ce://"alphascale"
-                            ShaderInputs.SetFloat(0x4D52C5FF, parm.Vector.X); //"AlphaScale"
-                            break;
-                        case 0x4d15c563://"shadowfalloff"
-                        case 0x38a2f7f5://"alphatest"
-                        case 0x6db8e46f://"selfshadowing"
-                        case 0xe0d28d44://"usetreenormals"
-                        case 0x0c6fa156://"windglobalparams"
-                        case 0x21ffda1a://"umglobalparams"
-                        case 0xff11711d://"specmapintmask"
-                        case 0xf418334f://"specularintensitymult"
-                        case 0x87744680://"specularfalloffmult"
-                        case 0x27b9b2fa://"specularfresnel"
-                        case 0xfdd796cf://"tintpaletteselector"
-                            break;
-
-                        case 0x41e69fbe://"treelod2normal"
-                        case 0x744e7500://"treelod2params"
-                            break;
-
-                        default:
-                            break;
-                    }
-                }
-            }
-        }
-
-        private void SetupSkyShader(Rsc5Shader s)
-        {
-            SetDefaultShader();
-            ShaderInputs = Shader.CreateShaderInputs();
-            ShaderInputs.SetFloat(0xDF918855, 1.0f);//"BumpScale"
-            ShaderInputs.SetUInt32(0x249983FD, 1); //"ParamsMapConfig"
-            ShaderInputs.SetFloat(0x4D52C5FF, 1.0f); //"AlphaScale"
-            ShaderInputs.SetFloat4(0x1C2824ED, Vector4.One);//"NoiseSettings"
-
-            if (s == null || s.Params == null)
-                return;
-
-            Textures = new Texture[3];
-            for (int p = 0; p < s.Params.Length; p++)
-            {
-                var parm = s.Params[p];
-                if (parm.Type == 0)
-                {
-                    var tex = parm.Texture;
-                    if (tex != null)
-                    {
-                        switch (parm.Hash)
-                        {
-                            //sky_system
-                            case 0xcc5c77fc://perlinsampler
-                            case 0x3344cee3://highdetailsampler
-                            case 0xf745c599://starfieldsampler
-                            case 0x5b709d2a://moonsampler
-                                break;
-
-                            //clouds
-                            case 0x8ac11cb0://normalsampler
-                                Textures[1] = tex;
-                                break;
-                            case 0xe43044d6://densitysampler
-                            case 0x874fd28b://detaildensitysampler
-                            case 0xad1518e5://detailnormalsampler
-                            case 0x9a35e36c://detaildensity2sampler
-                            case 0x77755b8f://detailnormal2sampler
-                                break;
-
-                            default:
-                                break;
-                        }
-                    }
-                }
-                else
-                {
-
-                    switch (parm.Hash)
-                    {
-                        #region sky_system
-                        case 0x229f9d0f://"debugcloudsparams"
-                        case 0x723da98d://"noisephase"
-                        case 0xe15c7aa5://"noisedensityoffset"
-                        case 0x3aaba477://"noisesoftness"
-                        case 0x0b37698b://"noisethreshold"
-                        case 0xf98cbcea://"noisescale"
-                        case 0x514fb02f://"noisefrequency"
-                        case 0x83f07e59://"mooncolor"
-                        case 0xbcc436dc://"lunarcycle"
-                        case 0x8b9afb5d://"moonintensity"
-                        case 0x077058ae://"moonposition"
-                        case 0xcfb33aca://"moondirection"
-                        case 0x66915a48://"starfieldintensity"
-                        case 0xf04c79fb://"speedconstants"
-                        case 0x1808cc54://"horizonlevel"
-                        case 0x4647a8ee://"effectsconstants"
-                        case 0x67cb6062://"smallcloudcolorhdr"
-                        case 0x16748424://"smallcloudconstants"
-                        case 0x6e30e7c0://"cloudconstants2"
-                        case 0x5bf7434d://"cloudconstants1"
-                        case 0x81d5c15e://"clouddetailconstants"
-                        case 0xdb7313bf://"cloudshadowminusbasecolourtimesshadowstrength"
-                        case 0xb9fa3b61://"cloudmidcolour"
-                        case 0x0c5efad9://"cloudbaseminusmidcolour"
-                        case 0xafd624bf://"sunposition"
-                        case 0x9b6972ea://"sundirection"
-                        case 0x5c32aa8b://"sunconstants"
-                        case 0x405e1a56://"sundisccolorhdr"
-                        case 0x3e8d0382://"suncolorhdr"
-                        case 0x3522fd1f://"suncolor"
-                        case 0xf68abdaa://"hdrintensity"
-                        case 0x77886744://"skyplaneparams"
-                        case 0xd524e91a://"skyplanecolor"
-                        case 0x002ac014://"zenithconstants"
-                        case 0xb4592d88://"zenithtransitioncolor"
-                        case 0x523f5189://"zenithcolor"
-                        case 0xa4cc5a5b://"azimuthtransitionposition"
-                        case 0x9f26ba95://"azimuthtransitioncolor"
-                        case 0x6fb9487f://"azimuthwestcolor"
-                        case 0x3e478b00://"azimutheastcolor"
-                            break;
-                        #endregion
-                        #region clouds
-                        case 0x652f6472://"cloudlayeranimscale3"
-                        case 0xad26745f://"cloudlayeranimscale2"
-                        case 0xa0e05bd3://"cloudlayeranimscale1"
-                        case 0xe885f554://"gsoftparticlerange"
-                        case 0x86b1e21a://"grescaleuv3"
-                        case 0x7a00c8b8://"grescaleuv2"
-                        case 0x2b2aab0d://"grescaleuv1"
-                        case 0xd13d7466://"guvoffset3"
-                        case 0x8aa2672d://"guvoffset2"
-                        case 0x98e703ba://"guvoffset1"
-                        case 0x07c150ef://"gcamerapos"
-                        case 0x52bd00bc://"gcloudviewproj"
-                        case 0xc4b23e96://"guvoffset"
-                        case 0xccf657aa://"ganimblendweights"
-                        case 0x2badee99://"ganimsculpt"
-                        case 0xf82166c9://"ganimcombine"
-                        case 0x95d12386://"gnearfarqmult"
-                        case 0x31ab9738://"gwraplighting_msaaref"
-                        case 0x17b7ac6e://"gscalediffusefillambient"
-                        case 0x89363bdc://"gpiercinglightpower_strength_normalstrength_thickness"
-                        case 0x3ad81b66://"gscatterg_gsquared_phasemult_scale"
-                        case 0xb56dd95a://"gdensityshiftscale"
-                        case 0xc3d07779://"gbouncecolor"
-                        case 0x952d996b://"gambientcolor"
-                        case 0xc7a732a6://"gcloudcolor"
-                        case 0xb33e5862://"gsuncolor"
-                        case 0x77c59bbb://"gsundirection"
-                        case 0xc01dbb19://"gwestcolor"
-                        case 0x8b08cbb2://"geastminuswestcolor"
-                        case 0xc66b7df1://"gskycolor"
-                            break;
-                        #endregion
-
                         default:
                             break;
                     }
