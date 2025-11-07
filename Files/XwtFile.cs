@@ -5,7 +5,7 @@ using CodeX.Games.MCLA.RSC5;
 
 namespace CodeX.Games.MCLA.Files
 {
-    public class XshpFile(Rpf3FileEntry file) : TexturePack(file)
+    public class XwtFile(Rpf3FileEntry file) : TexturePack(file)
     {
         public Rpf3FileEntry Entry = file;
         public Rsc5Bitmap Bitmap { get; private set; }
@@ -33,6 +33,11 @@ namespace CodeX.Games.MCLA.Files
         public override byte[] Save()
         {
             return null;
+        }
+
+        public override void BuildFromTextureList(List<Texture> textures)
+        {
+            base.BuildFromTextureList(textures);
         }
     }
 }

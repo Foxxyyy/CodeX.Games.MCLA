@@ -105,7 +105,7 @@ namespace CodeX.Games.MCLA.RPF3
                 var item = stack.Pop();
                 int starti = item.EntriesIndex;
                 int endi = item.EntriesIndex + item.EntriesCount;
-                item.Children = new List<Rpf3Entry>();
+                item.Children = [];
 
                 for (int i = starti; i < endi; i++)
                 {
@@ -264,7 +264,7 @@ namespace CodeX.Games.MCLA.RPF3
         {
             if (AllEntries == null)
             {
-                AllEntries = new List<GameArchiveEntry>(); //Assume this is a new RPF, create the root directory entry
+                AllEntries = []; //Assume this is a new RPF, create the root directory entry
                 Root = new Rpf3DirectoryEntry
                 {
                     Archive = this,
@@ -273,7 +273,7 @@ namespace CodeX.Games.MCLA.RPF3
                 };
             }
 
-            Children ??= new List<GameArchive>();
+            Children ??= [];
             var newSupers = new List<GameArchiveEntry>();
             var sortSupers = (Action<GameArchiveEntry>)null;
 
@@ -355,7 +355,7 @@ namespace CodeX.Games.MCLA.RPF3
 
         private static uint GetBlockCount(long bytecount)
         {
-            uint b0 = (uint)(bytecount & 0x1FF); //511;
+            uint b0 = (uint)(bytecount & 0x1FF); //511
             uint b1 = (uint)(bytecount >> 9);
             if (b0 == 0) return b1;
             return b1 + 1;
@@ -492,7 +492,7 @@ namespace CodeX.Games.MCLA.RPF3
         public override void ReadStructure(BinaryReader br)
         {
             ReadHeader(br);
-            Children = new List<GameArchive>();
+            Children = [];
 
             foreach (Rpf3Entry entry in AllEntries.Cast<Rpf3Entry>())
             {
@@ -596,7 +596,7 @@ namespace CodeX.Games.MCLA.RPF3
             UNK1 = br.ReadUInt32();
             EncFlag = br.ReadInt32();
 
-            AllEntries = new List<GameArchiveEntry>();
+            AllEntries = [];
             var entrydict = new Dictionary<string, GameArchiveFileInfo>();
 
             for (int i = 0; i < EntryCount; i++)
@@ -692,7 +692,7 @@ namespace CodeX.Games.MCLA.RPF3
                 throw new Exception("Root RPF file " + fpath + " does not exist!");
             }
 
-            Rpf3FileEntry entry = null;
+            Rpf3ResourceFileEntry entry = null;
             uint len = (uint)data.Length;
 
             if (entry == null) //no RSC5 header present, import as a binary file.
@@ -767,7 +767,7 @@ namespace CodeX.Games.MCLA.RPF3
                 Name = name,
                 NameOffset = JenkHash.GenHash(name),
                 IsDirectory = true,
-                Children = new List<Rpf3Entry>()
+                Children = []
             };
 
             foreach (var exdir in dir.Directories)
@@ -814,9 +814,9 @@ namespace CodeX.Games.MCLA.RPF3
                 if (_Attributes == null)
                 {
                     _Attributes = "";
-                    if (this is Rpf3FileEntry)
+                    if (this is Rpf3FileEntry entry && entry.IsResource)
                     {
-                        _Attributes += "File";
+                        _Attributes += "Resource [V." + ((byte)entry.ResourceType).ToString() + "]";
                     }
                     if (IsEncrypted)
                     {
@@ -986,11 +986,8 @@ namespace CodeX.Games.MCLA.RPF3
             {
                 switch (ResourceType)
                 {
-                    case Rpf3ResourceType.Fragment:
-                        Name += ".xft";
-                        break;
-                    case Rpf3ResourceType.BitMap:
-                        Name += ".xshp";
+                    case Rpf3ResourceType.ModelResource:
+                        Name += ".xrsc";
                         break;
                     case Rpf3ResourceType.Animation:
                         Name += ".xbtm";
@@ -999,7 +996,13 @@ namespace CodeX.Games.MCLA.RPF3
                         Name += ".xsf";
                         break;
                     case Rpf3ResourceType.Drawable:
-                        Name += ".drawable";
+                        Name += ".xdr";
+                        break;
+                    case Rpf3ResourceType.Texture:
+                        Name += ".xtd";
+                        break;
+                    case Rpf3ResourceType.VehiclePart:
+                        Name += ".xtl";
                         break;
                 }
             }
@@ -1071,20 +1074,27 @@ namespace CodeX.Games.MCLA.RPF3
     public enum Rpf3ResourceType
     {
         None = 0,
-        BitMap = 1, //xshp
-        Animation, //xbtm
+        Generic = 1, //xshp, xcs, xapk, xmd
+        Animation = 3, //xbtm
         Texture = 9, //xtd
+        StreamingPackMap = 19, //xspm, index entry that controls what’s streamed for a vehicle
         Flash = 27, //xsf
-        Fragment = 63, //xft
-        Drawable = 102 //unknown
+        CarTuning = 50, //xct
+        AmbientPedHierarchy = 51, //xaph
+        ModelResource = 63, //xrsc
+        VehiclePart = 83, //xtp, xtl
+        Drawable = 102, //xdr
+        PropInstanceChunk = 131, //xck
+        MultiPropDefinition = 134, //xmp
+        AmbientPedBody = 189, //xapb
+        LightManager = 226 //xlm (mcMultiLightMgr)
 
-        //xcs, city sector (mcCitySector)
         //xst, stringtable
-        //xapk, animation pack
         //xprp? //also in rdr1
         //xal? ambient layout?
         //xaa? avoid anim?
         //xmd? metadata?
-        //xdr? drawable?
+        //xlp - low poly meshe
+        //xov - overlay
     }
 }

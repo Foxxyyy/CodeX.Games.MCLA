@@ -10,17 +10,15 @@ using TC = System.ComponentModel.TypeConverterAttribute;
 
 namespace CodeX.Games.MCLA.RSC5
 {
-    [TC(typeof(EXP))] public class Rsc5AmbientDrawablePed : Rsc5FileBase //.xapb
+    [TC(typeof(EXP))] public class Rsc5AmbientDrawablePed : Rsc5BlockBaseMap //.xapb
     {
         public override ulong BlockLength => 64;
         public override uint VFT { get; set; } = 0;
-        public Rsc5Ptr<Rsc5BlockMap> BlockMap { get; set; }
         public Rsc5Ptr<Rsc5DrawableBase> Drawable { get; set; }
 
         public override void Read(Rsc5DataReader reader)
         {
             base.Read(reader);
-            BlockMap = reader.ReadPtr<Rsc5BlockMap>();
             Drawable = reader.ReadPtr<Rsc5DrawableBase>();
         }
 
@@ -30,23 +28,43 @@ namespace CodeX.Games.MCLA.RSC5
         }
     }
 
-    [TC(typeof(EXP))] public class Rsc5City : Rsc5FileBase //.xshp located in resources/city
+    [TC(typeof(EXP))] public class Rsc5CitySector : Rsc5BlockBaseMap //.xcs root
     { 
         public override ulong BlockLength => 40;
         public override uint VFT { get; set; } = 0;
-        public Rsc5Ptr<Rsc5BlockMap> BlockMap { get; set; }
-        public Rsc5Ptr<Rsc5TextureDictionary> Dictionary { get; set; }
+        public Rsc5Ptr<Rsc5TextureDictionary> TextureDictionary { get; set; }
         public uint Unknown_Ch { get; set; }
-        public Rsc5Ptr<Rsc5SimpleDrawableBase> Drawable { get; set; }
+        public Rsc5Ptr<Rsc5CitySectorPiece> SectorPiece { get; set; }
 
         public override void Read(Rsc5DataReader reader)
         {
             base.Read(reader);
-            BlockMap = reader.ReadPtr<Rsc5BlockMap>();
-            Dictionary = reader.ReadPtr<Rsc5TextureDictionary>();
+            TextureDictionary = reader.ReadPtr<Rsc5TextureDictionary>();
             Unknown_Ch = reader.ReadUInt32();
-            Drawable = reader.ReadPtr<Rsc5SimpleDrawableBase>();
-            Drawable.Item?.ApplyTextures(Dictionary.Item);
+            SectorPiece = reader.ReadPtr<Rsc5CitySectorPiece>();    
+            
+            TexturePack texpack = null;
+            var txdict = TextureDictionary.Item.Dict;
+            
+            if (txdict != null)
+            {
+                texpack = new TexturePack(reader.FileEntry)
+                {
+                    Textures = []
+                };
+
+                foreach (var kvp in txdict)
+                {
+                    texpack.Textures[kvp.Key.ToString()] = kvp.Value;
+                }
+            }
+
+            if (SectorPiece.Item != null)
+            {
+                var piece = SectorPiece.Item;
+                piece.TexturePack = texpack;
+                piece.ApplyTextures(TextureDictionary.Item);
+            }
         }
 
         public override void Write(Rsc5DataWriter writer)
@@ -55,12 +73,113 @@ namespace CodeX.Games.MCLA.RSC5
         }
     }
 
-    [TC(typeof(EXP))] public class Rsc5DrawableBase : Piece, IRsc5Block
+    [TC(typeof(EXP))] public class Rsc5MapDistrictLod : Piece, IRsc5Block, IRsc5DrawableRoot //.xmd root
     {
-        public virtual ulong BlockLength => 116;
+        public ulong BlockLength => 28;
         public ulong FilePosition { get; set; }
         public bool IsPhysical => false;
+        public uint VFT { get; set; } = 0x00596410;
+        public Rsc5Ptr<Rsc5BlockMap> BlockMap { get; set; }
+        public Rsc5Ptr<Rsc5ShaderGroup> ShaderGroupPtr { get; set; }
+        public Rsc5Arr<Vector4> CullingPlanes { get; set; } //Normalized plane normals. W component is the distance from origin.
 
+        public Rsc5DrawableLod Lod { get; set; }
+        public Rsc5ShaderGroup ShaderGroup => ShaderGroupPtr.Item;
+
+        public Rsc5MapDistrictLod()
+        {
+        }
+
+        public Rsc5MapDistrictLod(Rsc5DrawableModel model, Rsc5ShaderGroup shaderGroup, string name)
+        {
+            ShaderGroupPtr = new Rsc5Ptr<Rsc5ShaderGroup>()
+            {
+                Item = shaderGroup
+            };
+
+            var lod = new Rsc5DrawableLod
+            {
+                ModelsData = new Rsc5PtrArr<Rsc5DrawableModel>()
+                {
+                    Items = [model]
+                }
+            };
+
+            lod.Models = lod.ModelsData.Items;
+            lod.LodDist = 9999.0f;
+            Lod = lod;
+
+            Lods = [lod];
+            Name = name;
+
+            UpdateAllModels();
+            AssignShaders();
+            UpdateBounds();
+        }
+
+        public void Read(Rsc5DataReader reader)
+        {
+            VFT = reader.ReadUInt32();
+            BlockMap = reader.ReadPtr<Rsc5BlockMap>();
+            ShaderGroupPtr = reader.ReadPtr<Rsc5ShaderGroup>();
+            Lod = reader.ReadBlock<Rsc5DrawableLod>();
+            CullingPlanes = reader.ReadArr<Vector4>();
+
+            if (Lod != null) Lod.LodDist = 9999f;
+            Lods = [Lod];
+            Name = Path.GetFileNameWithoutExtension(reader.FileEntry.Name);
+
+            UpdateAllModels();
+            AssignShaders();
+            UpdateBounds();
+        }
+
+        public void Write(Rsc5DataWriter writer)
+        {
+            throw new NotImplementedException();
+        }
+
+        public void AssignShaders()
+        {
+            if (ShaderGroup?.Shaders.Items == null) return;
+            if (Lod == null) return;
+
+            var shaders = ShaderGroup.Shaders.Items;
+            var models = Lod.ModelsData.Items;
+
+            foreach (var model in models)
+            {
+                if (model == null || model.Geometries.Items == null) continue;
+
+                var geomList = model.Geometries.Items;
+                var shaderMapping = model.ShaderMapping.Items;
+
+                for (int i = 0; i < geomList.Length; i++)
+                {
+                    var geom = geomList[i];
+                    if (geom == null) continue;
+
+                    ushort shaderId = 0;
+                    if (shaderMapping != null && i < shaderMapping.Length)
+                    {
+                        shaderId = shaderMapping[i];
+                    }
+
+                    if (shaderId < shaders.Length)
+                    {
+                        var shader = shaders[shaderId];
+                        geom.SetShaderRef(shader, model);
+                    }
+                }
+            }
+        }
+    }
+
+    [TC(typeof(EXP))] public class Rsc5DrawableBase : Piece, IRsc5Block
+    {
+        public ulong BlockLength => 116;
+        public ulong FilePosition { get; set; }
+        public bool IsPhysical => false;
         public uint VFT { get; set; } = 0x00516D84;
         public Rsc5Ptr<Rsc5BlockMap> BlockMap { get; set; }
         public Rsc5Ptr<Rsc5ShaderGroup> ShaderGroup { get; set; }
@@ -167,7 +286,7 @@ namespace CodeX.Games.MCLA.RSC5
                             if (model.Meshes[j] is Rsc5DrawableGeometry mesh)
                             {
                                 var shader = (mesh.ShaderID < shaders.Length) ? shaders[mesh.ShaderID] : null;
-                                mesh.SetShaderRef(shader);
+                                mesh.SetShaderRef(shader, model);
                             }
                         }
                     }
@@ -282,9 +401,11 @@ namespace CodeX.Games.MCLA.RSC5
             }
 
             Lods = [Lod];
+            Name = Path.GetFileNameWithoutExtension(reader.FileEntry.Name);
 
             UpdateAllModels();
-            AssignGeometryShaders();
+            AssignShaders();
+            UpdateBounds();
         }
 
         public void Write(Rsc5DataWriter writer)
@@ -292,7 +413,7 @@ namespace CodeX.Games.MCLA.RSC5
             throw new NotImplementedException();
         }
 
-        public void AssignGeometryShaders()
+        public void AssignShaders()
         {
             if (AllModels == null) return;
             foreach (var model in AllModels.Cast<Rsc5DrawableModel>())
@@ -305,13 +426,68 @@ namespace CodeX.Games.MCLA.RSC5
                 {
                     var geom = geoms[i];
                     geom.SetDefaultShader();
+                    geom.SetDefaultTextures(Texture.CreateOnePx(Colour.White), null, null);
                     geom.ShaderInputs = geom.Shader.CreateShaderInputs();
+                }
+            }
+        }
+
+        public void SetSkeleton(Rsc5SkeletonData skel)
+        {
+            Skeleton = skel;
+            if (AllModels == null) return;
+
+            var bones = skel?.Bones;
+            if (bones == null) return;
+
+            foreach (var model in AllModels.Cast<Rsc5DrawableModel>())
+            {
+                if (model == null) continue;
+                if (model.Meshes == null) continue;
+
+                var boneidx = model.MatrixIndex;
+                if ((model.SkinFlag == 0) && (boneidx < bones.Length))
+                {
+                    if (model.Meshes != null)
+                    {
+                        foreach (var mesh in model.Meshes)
+                        {
+                            mesh.BoneIndex = boneidx;
+                            if ((boneidx < 0) && (bones.Length > 1))
+                            {
+                                mesh.Enabled = false;
+                            }
+                        }
+                    }
+                }
+                else if (model.SkinFlag == 1)
+                {
+                    foreach (var mesh in model.Meshes)
+                    {
+                        if (mesh is not Rsc5DrawableGeometry geom) continue;
+                        var boneids = geom.BoneIds.Items;
+                        if (boneids != null)
+                        {
+                            var boneinds = new int[boneids.Length];
+                            for (int i = 0; i < boneinds.Length; i++)
+                            {
+                                boneinds[i] = boneids[i];
+                            }
+                            geom.Rig = new SkeletonRig(skel, true, boneinds);
+                        }
+                        else
+                        {
+                            geom.Rig = new SkeletonRig(skel, true);
+                        }
+                        geom.RigMode = MeshRigMode.MeshRig;
+                        geom.IsSkin = true;
+                    }
                 }
             }
         }
     }
 
-    [TC(typeof(EXP))] public class Rsc5SimpleDrawableBase : Piece, IRsc5Block
+    [TC(typeof(EXP))] public class Rsc5CitySectorPiece : Piece, IRsc5Block, IRsc5DrawableRoot
     {
         public virtual ulong BlockLength => 160;
         public ulong FilePosition { get; set; }
@@ -319,21 +495,21 @@ namespace CodeX.Games.MCLA.RSC5
 
         public uint VFT { get; set; } = 0x00595E80;
         public Rsc5Ptr<Rsc5BlockMap> BlockMap { get; set; }
-        public Rsc5Ptr<Rsc5ShaderGroup> ShaderGroup { get; set; }
-        public Rsc5Ptr<Rsc5DrawableLodMap> Lod { get; set; }
+        public Rsc5Ptr<Rsc5ShaderGroup> ShaderGroupPtr { get; set; }
+        public Rsc5Ptr<Rsc5DrawableLodMap> LodPtr { get; set; }
+
+        public Rsc5DrawableLod Lod => LodPtr.Item?.Drawables;
+        public Rsc5ShaderGroup ShaderGroup => ShaderGroupPtr.Item;
 
         public virtual void Read(Rsc5DataReader reader)
         {
             VFT = reader.ReadUInt32();
             BlockMap = reader.ReadPtr<Rsc5BlockMap>();
-            ShaderGroup = reader.ReadPtr<Rsc5ShaderGroup>();
-            Lod = reader.ReadPtr<Rsc5DrawableLodMap>();
+            ShaderGroupPtr = reader.ReadPtr<Rsc5ShaderGroup>();
+            LodPtr = reader.ReadPtr<Rsc5DrawableLodMap>();
 
-            Lods = [Lod.Item];
-            if (Lod.Item != null)
-            {
-                Lod.Item.LodDist = 9999f;
-            }
+            Lods = [Lod];
+            if (Lod != null) Lod.LodDist = 9999f;
 
             UpdateAllModels();
             AssignGeometryShaders();
@@ -384,9 +560,9 @@ namespace CodeX.Games.MCLA.RSC5
 
         public void AssignGeometryShaders() //Assign embedded textures to mesh for rendering
         {
-            if ((ShaderGroup.Item?.Shaders.Items != null) && (AllModels != null))
+            if ((ShaderGroup?.Shaders.Items != null) && (AllModels != null))
             {
-                var shaders = ShaderGroup.Item?.Shaders.Items;
+                var shaders = ShaderGroup.Shaders.Items;
                 for (int i = 0; i < AllModels.Length; i++)
                 {
                     var model = AllModels[i];
@@ -397,7 +573,7 @@ namespace CodeX.Games.MCLA.RSC5
                             if (model.Meshes[j] is Rsc5DrawableGeometry mesh)
                             {
                                 var shader = (mesh.ShaderID < shaders.Length) ? shaders[mesh.ShaderID] : null;
-                                mesh.SetShaderRef(shader);
+                                mesh.SetShaderRef(shader, model);
                             }
                         }
                     }
@@ -406,29 +582,35 @@ namespace CodeX.Games.MCLA.RSC5
         }
     }
 
-    [TC(typeof(EXP))] public class Rsc5DrawableLodMap : Rsc5DrawableLod, IRsc5Block
+    [TC(typeof(EXP))] public class Rsc5DrawableLodMap : Rsc5BlockBaseMap
     {
-        public new ulong BlockLength => 32;
-        public new ulong FilePosition { get; set; }
-        public new bool IsPhysical => false;
-
-        public uint VFT { get; set; } = 0x005960EC;
-        public Rsc5Ptr<Rsc5BlockMap> BlockMap { get; set; }
+        public override ulong BlockLength => 32;
+        public override uint VFT { get; set; } = 0x005960EC;
         public uint ParentDictionary { get; set; }
         public uint RefCount { get; set; } = 1;
-        public Rsc5Arr<uint> Hashes { get; set; }
+        public Rsc5Arr<JenkHash> Hashes { get; set; }
+        public Rsc5DrawableLod Drawables { get; set; }
 
-        public new void Read(Rsc5DataReader reader)
+        public override void Read(Rsc5DataReader reader)
         {
-            VFT = reader.ReadUInt32();
-            BlockMap = reader.ReadPtr<Rsc5BlockMap>();
+            base.Read(reader);
             ParentDictionary = reader.ReadUInt32();
             RefCount = reader.ReadUInt32();
-            Hashes = reader.ReadArr<uint>();
-            base.Read(reader);
+            Hashes = reader.ReadArr<JenkHash>();
+            Drawables = reader.ReadBlock<Rsc5DrawableLod>();
+
+            var hashes = Hashes.Items;
+            var drawables = Drawables.Models;
+
+            for (int i = 0; i < drawables.Length; i++)
+            {
+                var drawable = drawables[i];
+                var hash = (i < hashes.Length) ? hashes[i] : 0;
+                drawable.Name = hash.ToString();
+            }
         }
 
-        public new void Write(Rsc5DataWriter writer)
+        public override void Write(Rsc5DataWriter writer)
         {
             throw new NotImplementedException();
         }
@@ -458,8 +640,7 @@ namespace CodeX.Games.MCLA.RSC5
         public ulong BlockLength => 28;
         public ulong FilePosition { get; set; }
         public bool IsPhysical => false;
-
-        public ulong VFT { get; set; }
+        public ulong VFT { get; set; } = 0x005A4B0C;
         public Rsc5PtrArr<Rsc5DrawableGeometry> Geometries { get; set; } //m_Geometries
         public Rsc5RawArr<Vector4> BoundsData { get; set; } //m_AABBs, one for each geometry + one for the whole model (unless there's only one model)
         public Rsc5RawArr<ushort> ShaderMapping { get; set; } //m_ShaderIndex
@@ -704,39 +885,69 @@ namespace CodeX.Games.MCLA.RSC5
             writer.WriteUInt32(Unknown_3Ch);
         }
 
-        public void SetShaderRef(Rsc5Shader shader)
+        public void SetShaderRef(Rsc5Shader shader, Model model)
         {
             ShaderRef = shader;
             if (shader != null)
             {
                 var shaderName = shader.ShaderName.ToString().ToLower();
-                switch (new JenkHash(shaderName))
+                var hash = new JenkHash(shaderName);
+                Name = Path.GetFileNameWithoutExtension(shader.ShaderFileName.ToString());
+
+                switch (hash)
                 {
                     case 0xD2492FB1: //CityGrass
-                    case 0xE4CB95DC: //CityTerrain
                         SetupGrassTerrainShader(shader);
                         break;
+                    case 0xE4CB95DC: //CityTerrain
+                        SetupTerrainShader(shader);
+                        break;
                     case 0xDAFA8999: //CityRoad
+                        SetupDecalGrimeShader(shader);
+                        break;
                     case 0x603A18C1: //CityDecal
-                    case 0x27DAEE8D: //CityGrimeDecal
-                    case 0x478552AF: //CityGroundDecalGrime
+                        SetupDecalShader(shader);
+                        break;
+                    //case 0xACB3CD30: //CityPondWater
+                    //case 0xC196451F: //CityOceanShore
+                    //case 0x4D36038E: //CityOceanWater
+                        //SetupWaterShader(shader, model);
+                        //break;
                     case 0x4F8CB366: //CityGroundGrimeDecal
-                        SetupDiffuse2Shader(shader);
+                    case 0x27DAEE8D: //CityGrime
+                    case 0x8723C5BE: //CityGrimeDecal
+                    case 0x300437A8: //CityGroundGrime
+                    case 0x478552AF: //CityGroundDecalGrime
+                        SetupDecal2Shader(shader);
                         break;
                     default:
                         SetupDefaultShader(shader);
                         break;
                 }
 
+                switch (hash)
+                {
+                    case 0x61C0C8F9: //CityNormalMap
+                        ShaderInputs.SetFloat(0xDF918855, 0.5f); //BumpScale
+                        break;
+                    case 0xA6DD4FC1: //CityWindowLOD
+                    case 0x816FF892: //CityWindowUpper
+                        ShaderInputs.SetFloat(0x4D52C5FF, 0.0f); //AlphaScale
+                        break;
+                    default:
+                        ShaderInputs.SetFloat(0x4D52C5FF, 1.0f); //AlphaScale
+                        break;
+                }
+
                 var bucket = shader.DrawBucket;
                 switch (bucket)
                 {
-                    case 0: ShaderBucket = ShaderBucket.Solid; break; //solid
-                    case 1: ShaderBucket = ShaderBucket.Alpha1; break; //alpha 
-                    case 2: ShaderBucket = ShaderBucket.Decal1; break; //decal
-                    case 3: ShaderBucket = ShaderBucket.Alpha1; break; //cutout
-                    case 6: ShaderBucket = ShaderBucket.Alpha1; break; //water
-                    case 7: ShaderBucket = ShaderBucket.Alpha1; break; //glass
+                    case 0: ShaderBucket = ShaderBucket.Solid; break; //Solid
+                    case 1: ShaderBucket = ShaderBucket.Alpha1; break; //Alpha 
+                    case 2: ShaderBucket = ShaderBucket.Decal1; break; //Decal
+                    case 3: ShaderBucket = ShaderBucket.Alpha1; break; //Cutout
+                    case 6: ShaderBucket = ShaderBucket.Alpha1; break; //Water
+                    case 7: ShaderBucket = ShaderBucket.Alpha1; break; //Glass
                     default: break;
                 }
             }
@@ -746,7 +957,6 @@ namespace CodeX.Games.MCLA.RSC5
         {
             SetDefaultShader();
             ShaderInputs = Shader.CreateShaderInputs();
-            ShaderInputs.SetFloat(0x4D52C5FF, 1.0f); //AlphaScale
 
             if (s == null || s.Params == null) return;
             Textures = new Texture[2];
@@ -765,6 +975,7 @@ namespace CodeX.Games.MCLA.RSC5
                     {
                         switch (parm.Hash)
                         {
+                            case 0x3C870418: //neonsampler
                             case 0xF1FE2B71: //diffusesampler
                             case 0x50022388: //platebgsampler
                             case 0x1cf5b657: //texturesamp
@@ -791,6 +1002,7 @@ namespace CodeX.Games.MCLA.RSC5
                             sintensitymult = parm.Vector.X;
                             break;
                         case 0x166E0FD1: //specularfactor //10-150+?, higher is shinier
+                        case 0x93D520E8: //specularexponent //10-150+?, higher is shinier
                             sfalloffmult = parm.Vector.X;
                             break;
                     }
@@ -807,7 +1019,7 @@ namespace CodeX.Games.MCLA.RSC5
             }
         }
 
-        private void SetupDiffuse2Shader(Rsc5Shader s)
+        private void SetupDecalShader(Rsc5Shader s)
         {
             SetCoreShader<BlendShader>(ShaderBucket.Solid);
             ShaderInputs = Shader.CreateShaderInputs();
@@ -832,19 +1044,86 @@ namespace CodeX.Games.MCLA.RSC5
                             case 0x605fcc60: //distancemapsampler
                                 Textures[0] = tex;
                                 break;
+                            case 0xE3381C99: //grimesampler
                             case 0xA79AEEC0: //decalsampler
                                 Textures[1] = tex;
                                 break;
                         }
                     }
                 }
-                else
+            }
+        }
+
+        private void SetupDecal2Shader(Rsc5Shader s)
+        {
+            SetCoreShader<BlendShader>(ShaderBucket.Solid);
+            ShaderInputs = Shader.CreateShaderInputs();
+            ShaderInputs.SetUInt32(0x9B920BD, 28); //BlendMode
+
+            if (s == null || s.Params == null) return;
+            Textures = new Texture[2];
+
+            for (int p = 0; p < s.Params.Length; p++)
+            {
+                var parm = s.Params[p];
+                if (parm.Type == 0)
                 {
-                    switch (parm.Hash)
+                    var tex = parm.Texture;
+                    if (tex != null)
                     {
-                        case 0xF6712B81: //bumpiness
-                            ShaderInputs.SetFloat4(0x7CB163F5, parm.Vector); //BumpScales
-                            break;
+                        switch (parm.Hash)
+                        {
+                            case 0xF1FE2B71: //diffusesampler
+                            case 0x2b5170fd: //texturesampler
+                            case 0x3e19076b: //detailmapsampler
+                            case 0x605fcc60: //distancemapsampler
+                                Textures[0] = tex;
+                                break;
+                            case 0xE3381C99: //grimesampler
+                            case 0xA79AEEC0: //decalsampler
+                                Textures[1] = tex;
+                                break;
+                        }
+                    }
+                }
+            }
+        }
+
+        private void SetupDecalGrimeShader(Rsc5Shader s)
+        {
+            SetCoreShader<BlendShader>(ShaderBucket.Solid);
+            ShaderInputs = Shader.CreateShaderInputs();
+            ShaderInputs.SetUInt32(0x9B920BD, 29); //BlendMode
+
+            if (s == null || s.Params == null) return;
+            Textures = new Texture[4];
+
+            for (int p = 0; p < s.Params.Length; p++)
+            {
+                var parm = s.Params[p];
+                if (parm.Type == 0)
+                {
+                    var tex = parm.Texture;
+                    if (tex != null)
+                    {
+                        switch (parm.Hash)
+                        {
+                            case 0xF1FE2B71: //diffusesampler
+                            case 0x2b5170fd: //texturesampler
+                            case 0x3e19076b: //detailmapsampler
+                            case 0x605fcc60: //distancemapsampler
+                                Textures[0] = tex;
+                                break;
+                            case 0xA79AEEC0: //decalsampler
+                                Textures[1] = tex;
+                                break;
+                            case 0xE3381C99: //grimesampler
+                                Textures[2] = tex;
+                                break;
+                            case 0xFE553678: //puddlesampler
+                                Textures[3] = tex;
+                                break;
+                        }
                     }
                 }
             }
@@ -854,12 +1133,45 @@ namespace CodeX.Games.MCLA.RSC5
         {
             SetCoreShader<BlendShader>(ShaderBucket.Solid);
             ShaderInputs = Shader.CreateShaderInputs();
-            ShaderInputs.SetUInt32(0x9B920BD, 28); //BlendMode
+            ShaderInputs.SetUInt32(0x9B920BD, 30); //BlendMode
 
-            if (s.ShaderName.ToString() == "CityTerrain")
+            if (s == null || s.Params == null) return;
+            Textures = new Texture[4];
+
+            for (int p = 0; p < s.Params.Length; p++)
             {
-                ShaderInputs.SetFloat4(0x7CB163F5, new Vector4(1.5f)); //BumpScales
+                var parm = s.Params[p];
+                if (parm.Type == 0)
+                {
+                    var tex = parm.Texture;
+                    if (tex != null)
+                    {
+                        switch (parm.Hash)
+                        {
+                            case 0xC9A79FED: //diffusesamplera
+                                Textures[0] = tex;
+                                break;
+                            case 0xF7357B08: //diffusesamplerb
+                                Textures[1] = tex;
+                                break;
+                            case 0xA4CFD63A: //diffusesamplerc
+                                Textures[2] = tex;
+                                break;
+                            case 0x8BFCEF8D: //channelmapsampler
+                                Textures[3] = tex;
+                                break;
+                        }
+                    }
+                }
             }
+        }
+
+        private void SetupTerrainShader(Rsc5Shader s)
+        {
+            SetCoreShader<BlendShader>(ShaderBucket.Solid);
+            ShaderInputs = Shader.CreateShaderInputs();
+            ShaderInputs.SetUInt32(0x9B920BD, 31); //BlendMode
+            ShaderInputs.SetFloat4(0x7CB163F5, new Vector4(0.5f)); //BumpScales
 
             if (s == null || s.Params == null) return;
             Textures = new Texture[7];
@@ -901,9 +1213,57 @@ namespace CodeX.Games.MCLA.RSC5
             }
         }
 
+        private void SetupWaterShader(Rsc5Shader s, Model model) //be_smb_beach_03, hw_ws_macauthupark
+        {
+            SetCoreShader<RefractShader>(ShaderBucket.Translucency);
+            ShaderInputs = Shader.CreateShaderInputs();
+            ShaderInputs.SetUInt32(0x047FEB72, 1); //NormalsMode - animated ocean normals
+            ShaderInputs.SetUInt32(0x5598A4F3, 0); //RefractMode - SSR water
+            ShaderInputs.SetUInt32(0xC7AFBF36, 1); //WaterFlowUVSource - texcoord1
+            ShaderInputs.SetUInt32(0xD7CA292B, 1); //NormalsSource - always up (0,0,1)
+            ShaderInputs.SetFloat3(0x22963AF5, new(0.025f, 0.025f, 0.35f)); //WaterRippleSize (Z = wave height)
+            ShaderInputs.SetFloat(0xA52368EA, 0.8f); //WaterRippleSpeed
+            ShaderInputs.SetFloat(0x16557DF5, 0.02f); //WaterRippleHeight
+            ShaderInputs.SetFloat(0xCC9749CA, 5.0f); //RefractEdgeBlend
+            ShaderInputs.SetFloat4(0x9A7F494F, new Vector4(0.1f, 0.05f, 0.02f, 0)); //RefractAbsorption
+            ShaderInputs.SetFloat4(0xF6B32D0C, new Vector4(1, 0, 0, 0)); //WaterFlowTextureMaskX
+            ShaderInputs.SetFloat4(0xE06E0082, new Vector4(0, 1, 0, 0)); //WaterFlowTextureMaskY
+
+            model.RenderInShadowView = false;
+            if (s == null || s.Params == null) return;
+            Textures = new Texture[4];
+
+            for (int p = 0; p < s.Params.Length; p++)
+            {
+                var parm = s.Params[p];
+                if (parm.Type == 0)
+                {
+                    var tex = parm.Texture;
+                    if (tex != null)
+                    {
+                        switch (parm.Hash)
+                        {
+                            case 0xF1FE2B71: //diffusesampler
+                                Textures[0] = parm.Texture;
+                                break;
+                            case 0x63F7C0E8: //wavefoamsampler
+                                Textures[1] = parm.Texture;
+                                break;
+                            case 0xC2B08918: //foamsampler
+                                Textures[2] = parm.Texture;
+                                break;
+                            case 0x00A67ACD: //ripple normal map
+                                Textures[3] = parm.Texture;
+                                break;
+                        }
+                    }
+                }
+            }
+        }
+
         public override string ToString()
         {
-            return VertexCount.ToString() + " verts, " + (ShaderRef?.ToString() ?? "NULL SHADER)");
+            return Name + ", " + (ShaderRef?.ToString() ?? "NULL SHADER") + ", " + VertexCount.ToString() + " verts";
         }
     }
 
@@ -940,17 +1300,17 @@ namespace CodeX.Games.MCLA.RSC5
         }
     }
 
-    [TC(typeof(EXP))] public class Rsc5IndexBuffer : Rsc5BlockBase //grcIndexBufferD3D
+    [TC(typeof(EXP))] public class Rsc5IndexBuffer : Rsc5FileBase //grcIndexBufferD3D
     {
         public override ulong BlockLength => 32;
-        public ulong VFT { get; set; } = 0x00566198;
+        public override uint VFT { get; set; } = 0x00566198;
         public uint IndicesCount { get; set; }  //m_IndexCount
         public Rsc5RawArr<ushort> Indices { get; set; } //m_IndexData
         public Rsc5Ptr<Rsc5XenonD3DResource> D3DIndexBuffer { get; set; } //m_D3DBuffer
 
         public override void Read(Rsc5DataReader reader)
         {
-            VFT = reader.ReadUInt32();
+            base.Read(reader);
             IndicesCount = reader.ReadUInt32();
             Indices = reader.ReadRawArrPtr<ushort>();
             D3DIndexBuffer = reader.ReadPtr<Rsc5XenonD3DResource>();
@@ -959,15 +1319,14 @@ namespace CodeX.Games.MCLA.RSC5
 
         public override void Write(Rsc5DataWriter writer)
         {
-            IndicesCount = (uint)(Indices.Items != null ? Indices.Items.Length : 0);
             throw new NotImplementedException();
         }
     }
 
-    [TC(typeof(EXP))] public class Rsc5VertexBuffer : Rsc5BlockBase //grcVertexBufferD3D
+    [TC(typeof(EXP))] public class Rsc5VertexBuffer : Rsc5FileBase //grcVertexBufferD3D
     {
         public override ulong BlockLength => 32;
-        public uint VFT { get; set; } = 0x005665A0;
+        public override uint VFT { get; set; } = 0x005665A0;
         public ushort VertexCount { get; set; } //m_VertCount
         public byte Locked { get; set; } //m_Locked
         public byte Flags { get; set; } //m_Flags
@@ -980,7 +1339,7 @@ namespace CodeX.Games.MCLA.RSC5
 
         public override void Read(Rsc5DataReader reader)
         {
-            VFT = reader.ReadUInt32();
+            base.Read(reader);
             VertexCount = reader.ReadUInt16();
             Locked = reader.ReadByte();
             Flags = reader.ReadByte();
@@ -997,7 +1356,7 @@ namespace CodeX.Games.MCLA.RSC5
 
         public override void Write(Rsc5DataWriter writer)
         {
-            writer.WriteUInt32(VFT);
+            base.Write(writer);
             writer.WriteUInt16(VertexCount);
             writer.WriteByte(Locked);
             writer.WriteByte(Flags);
@@ -1582,18 +1941,15 @@ namespace CodeX.Games.MCLA.RSC5
         }
     }
 
-    [TC(typeof(EXP))] public class Rsc5ShaderGroup : Rsc5BlockBase
+    [TC(typeof(EXP))] public class Rsc5ShaderGroup : Rsc5BlockBaseMap
     {
         public override ulong BlockLength => 16;
-        public ulong VFT { get; set; }
-        public uint BlockMap { get; set; }
-        public Rsc5Ptr<Rsc5TextureDictionary> TextureDictionary { get; set; }
+        public override uint VFT { get; set; } = 0x005AA6FC;
         public Rsc5PtrArr<Rsc5Shader> Shaders { get; set; }
 
         public override void Read(Rsc5DataReader reader)
         {
-            VFT = reader.ReadUInt32();
-            BlockMap = reader.ReadUInt32();
+            base.Read(reader);
             Shaders = reader.ReadPtrArr<Rsc5Shader>();
 
             if (Shaders.Items != null)
@@ -1618,10 +1974,10 @@ namespace CodeX.Games.MCLA.RSC5
         }
     }
 
-    [TC(typeof(EXP))] public class Rsc5Shader : Rsc5BlockBase
+    [TC(typeof(EXP))] public class Rsc5Shader : Rsc5FileBase
     {
-        public override ulong BlockLength => 96;
-        public uint VFT { get; set; }
+        public override ulong BlockLength => 96; //Likely wrong
+        public override uint VFT { get; set; }
         public uint BlockMapAdress { get; set; }
         public byte Version { get; set; } //2
         public byte DrawBucket { get; set; }
@@ -1629,13 +1985,13 @@ namespace CodeX.Games.MCLA.RSC5
         public byte Unknown1 { get; set; }
         public ushort Unknown2 { get; set; }
         public ushort ShaderIndex { get; set; }
-        public uint ParamsDataPtr { get; set; }
+        public Rsc5RawArr<uint> ParamsData { get; set; }
         public uint Unknown3 { get; set; }
         public ushort ParamsCount { get; set; }
         public ushort EffectSize { get; set; }
-        public uint ParamsTypesPtr { get; set; }
+        public Rsc5RawArr<byte> ParamsTypes { get; set; }
         public uint Hash { get; private set; }
-        public uint ParamsNamesPtr { get; set; }
+        public Rsc5RawArr<uint> ParamsNames { get; set; }
         public uint Unknown4 { get; set; }
         public uint Unknown5 { get; set; }
         public Rsc5Str ShaderName { get; set; }
@@ -1646,7 +2002,7 @@ namespace CodeX.Games.MCLA.RSC5
 
         public override void Read(Rsc5DataReader reader)
         {
-            VFT = reader.ReadUInt32();
+            base.Read(reader);
             BlockMapAdress = reader.ReadUInt32();
             Version = reader.ReadByte();
             DrawBucket = reader.ReadByte();
@@ -1654,13 +2010,13 @@ namespace CodeX.Games.MCLA.RSC5
             Unknown1 = reader.ReadByte();
             Unknown2 = reader.ReadUInt16();
             ShaderIndex = reader.ReadUInt16();
-            ParamsDataPtr = reader.ReadUInt32();
+            ParamsData = reader.ReadRawArrPtr<uint>();
             Unknown3 = reader.ReadUInt32();
             ParamsCount = reader.ReadUInt16();
             EffectSize = reader.ReadUInt16();
-            ParamsTypesPtr = reader.ReadUInt32();
+            ParamsTypes = reader.ReadRawArrPtr<byte>();
             Hash = reader.ReadUInt32();
-            ParamsNamesPtr = reader.ReadUInt32();
+            ParamsNames = reader.ReadRawArrPtr<uint>();
             Unknown4 = reader.ReadUInt32();
             Unknown5 = reader.ReadUInt32();
             ShaderName = reader.ReadStr();
@@ -1669,29 +2025,33 @@ namespace CodeX.Games.MCLA.RSC5
             Unknown7 = reader.ReadUInt32();
 
             var pc = ParamsCount;
-            var ptrs = Rpf3Crypto.Swap(reader.ReadArray<uint>(pc, ParamsDataPtr));
-            var types = reader.ReadArray<byte>(pc, ParamsTypesPtr);
-            var hashes = Rpf3Crypto.Swap(reader.ReadArray<uint>(pc, ParamsNamesPtr));
-
+            ParamsData = reader.ReadRawArrItems(ParamsData, pc);
+            ParamsTypes = reader.ReadRawArrItems(ParamsTypes, pc);
+            ParamsNames = reader.ReadRawArrItems(ParamsNames, pc);
             Params = new Rsc5ShaderParameter[pc];
+
             for (uint i = 0; i < pc; i++)
             {
+                var ptr = ParamsData.Items[i];
+                var hash = ParamsNames.Items[i];
+                var type = ParamsTypes.Items[i];
+
                 var p = new Rsc5ShaderParameter
                 {
-                    Hash = hashes[i],
-                    Type = types[i]
+                    Hash = hash,
+                    Type = type
                 };
 
                 switch (p.Type)
                 {
                     case 0: //texture
-                        p.Texture = reader.ReadBlock<Rsc5Texture>(ptrs[i]);
+                        p.Texture = reader.ReadBlock<Rsc5Texture>(ptr);
                         break;
                     case 1: //vector4
-                        p.Vector = Rpf3Crypto.Swap(reader.ReadVector4(ptrs[i]));
+                        p.Vector = Rpf3Crypto.Swap(reader.ReadVector4(ptr));
                         break;
                     default: //array
-                        p.Array = Rpf3Crypto.Swap(reader.ReadArray<Vector4>(p.Type, ptrs[i]));
+                        p.Array = Rpf3Crypto.Swap(reader.ReadArray<Vector4>(p.Type, ptr));
                         break;
                 }
                 Params[i] = p;
@@ -1705,7 +2065,7 @@ namespace CodeX.Games.MCLA.RSC5
 
         public override string ToString()
         {
-            return ShaderName.Value;
+            return $"{ShaderName}";
         }
     }
 
@@ -1744,5 +2104,12 @@ namespace CodeX.Games.MCLA.RSC5
     {
         ROOT = 0,
         BOX_OCCLUDER = 59432
+    }
+
+    public interface IRsc5DrawableRoot
+    {
+        Rsc5ShaderGroup ShaderGroup { get; }
+        Rsc5DrawableLod Lod { get; }
+        void UpdateAllModels();
     }
 }

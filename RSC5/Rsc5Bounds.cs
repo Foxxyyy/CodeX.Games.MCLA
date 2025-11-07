@@ -9,18 +9,16 @@ using EXP = System.ComponentModel.ExpandableObjectConverter;
 
 namespace CodeX.Games.MCLA.RSC5
 {
-    public class Rsc5BoundsFile : Rsc5BlockBase
+    public class Rsc5BoundsFile : Rsc5BlockBaseMap
     {
         public override ulong BlockLength => 12;
-        public uint VFT { get; set; }
-        public Rsc5Ptr<Rsc5BlockMap> BlockMap { get; set; }
+        public override uint VFT { get; set; }
         public Rsc5Ptr<Rsc5Bounds> Bounds { get; set; }
 
         public override void Read(Rsc5DataReader reader)
         {
-            VFT = reader.ReadUInt32();
-            BlockMap = reader.ReadPtr<Rsc5BlockMap>();
-            Bounds = reader.ReadPtr<Rsc5Bounds>(Rsc5Bounds.Create);
+            base.Read(reader);
+            Bounds = reader.ReadPtr(Rsc5Bounds.Create);
         }
         public override void Write(Rsc5DataWriter writer)
         {
@@ -28,11 +26,10 @@ namespace CodeX.Games.MCLA.RSC5
         }
     }
 
-    public class Rsc5BoundsDictionary : Rsc5BlockBase
+    public class Rsc5BoundsDictionary : Rsc5BlockBaseMap
     {
         public override ulong BlockLength => 24;
-        public uint VFT { get; set; }
-        public Rsc5Ptr<Rsc5BlockMap> BlockMap { get; set; }
+        public override uint VFT { get; set; }
         public JenkHash ParentDictionary { get; set; }
         public uint UsageCount { get; set; }
         public Rsc5Arr<JenkHash> Hashes { get; set; }
@@ -40,8 +37,7 @@ namespace CodeX.Games.MCLA.RSC5
 
         public override void Read(Rsc5DataReader reader)
         {
-            VFT = reader.ReadUInt32();
-            BlockMap = reader.ReadPtr<Rsc5BlockMap>();
+            base.Read(reader);
             ParentDictionary = reader.ReadUInt32();
             UsageCount = reader.ReadUInt32();
             Hashes = reader.ReadArr<JenkHash>();
@@ -166,16 +162,14 @@ namespace CodeX.Games.MCLA.RSC5
             Radius = reader.ReadVector4();
             Material = reader.ReadStruct<Rsc5BoundMaterial>();
             Padding1 = reader.ReadUInt32();
-            if (Padding1 != 0)
-            { }
-            if (Material.Ref.MaterialData == null)
-            { }
             PartColour = Material.Ref.Colour;
             PartSize = new Vector3(Radius.X, 0.0f, 0.0f);
+
             ComputeMass(ColliderType.Sphere, PartSize, 1.0f);
             ComputeBodyInertia();
         }
     }
+    
     public class Rsc5BoundCapsule : Rsc5Bounds
     {
         public override ulong BlockLength => base.BlockLength + 96;//check this!
@@ -199,16 +193,14 @@ namespace CodeX.Games.MCLA.RSC5
             Unknown7 = reader.ReadVector4();
             Material = reader.ReadStruct<Rsc5BoundMaterial>();
             Unknown8 = reader.ReadVector3();
-
-            if (Material.Ref.MaterialData == null)
-            { }
-
             PartColour = Material.Ref.Colour;
             PartSize = new Vector3(Radius.X, Height.X, 0.0f);
+
             ComputeMass(ColliderType.Capsule, PartSize, 1.0f);
             ComputeBodyInertia();
         }
     }
+    
     public class Rsc5BoundBox : Rsc5Bounds
     {
         public override ulong BlockLength => base.BlockLength + 32;//is this actually variable length?
@@ -237,7 +229,6 @@ namespace CodeX.Games.MCLA.RSC5
         public uint Unknown16 { get; set; }
         public uint Unknown17 { get; set; }
         public uint Unknown18 { get; set; }
-
         public Vector3S[] Vertices { get; set; }
 
         public Rsc5BoundBox() : base(Rsc5BoundsType.Box) { }
@@ -272,23 +263,17 @@ namespace CodeX.Games.MCLA.RSC5
             Unknown18 = reader.ReadUInt32();
 
             Vertices = reader.ReadArray<Vector3S>(VerticesCount, VerticesPtr);
-
-
-            if (Material.Ref.MaterialData == null)
-            { }
-
-
             PartColour = Material.Ref.Colour;
-            PartSize = (BoxMax.XYZ() - BoxMin.XYZ());// * 0.5f;
+            PartSize = BoxMax.XYZ() - BoxMin.XYZ();
+
             ComputeMass(ColliderType.Box, PartSize, 1.0f);
             ComputeBodyInertia();
         }
-
     }
+
     public class Rsc5BoundGeometry : Rsc5Bounds
     {
         public override ulong BlockLength => 224;
-
         public uint Unknown5 { get; set; }
         public uint VertexColoursPtr { get; set; }
         public uint Unknown6 { get; set; }
@@ -314,7 +299,6 @@ namespace CodeX.Games.MCLA.RSC5
         public Vector3S[] Vertices { get; set; }
         public Rsc5BoundGeometryPolygon[] Polygons { get; set; }
         public Rsc5BoundMaterial[] Materials { get; set; }
-
 
         public Rsc5BoundGeometry(Rsc5BoundsType type = Rsc5BoundsType.Geometry) : base(type) { }
 
@@ -353,7 +337,6 @@ namespace CodeX.Games.MCLA.RSC5
             ComputeMass(ColliderType.Box, PartSize, 1.0f);
             ComputeBasicBodyInertia(ColliderType.Box, PartSize);
         }
-
 
         private void CreateMesh()
         {
@@ -406,8 +389,8 @@ namespace CodeX.Games.MCLA.RSC5
             PartMesh = Shape.Create("BoundGeometry", verts.ToArray(), indsl.ToArray());
             UpdateBounds();
         }
-
     }
+    
     public class Rsc5BoundGeometryBVH : Rsc5BoundGeometry
     {
         public override ulong BlockLength => base.BlockLength;
@@ -432,6 +415,7 @@ namespace CodeX.Games.MCLA.RSC5
 
         }
     }
+    
     public class Rsc5BoundComposite : Rsc5Bounds
     {
         public override ulong BlockLength => 144;
@@ -517,6 +501,7 @@ namespace CodeX.Games.MCLA.RSC5
             return Normal.ToString() + "   Material: " + MaterialIndex.ToString();
         }
     }
+    
     public struct Rsc5BoundGeometryBVHNode
     {
         public short MinX { get; set; }
@@ -545,6 +530,7 @@ namespace CodeX.Games.MCLA.RSC5
             return ItemId.ToString() + ": " + ItemCount.ToString();
         }
     }
+    
     public struct Rsc5BoundGeometryBVHTree
     {
         public short MinX { get; set; }
@@ -572,6 +558,7 @@ namespace CodeX.Games.MCLA.RSC5
             return NodeIndex1.ToString() + ", " + NodeIndex2.ToString() + "  (" + (NodeIndex2 - NodeIndex1).ToString() + " nodes)";
         }
     }
+    
     public class Rsc5BoundGeometryBVHRoot : Rsc5BlockBase
     {
         public override ulong BlockLength => 88;
@@ -618,6 +605,7 @@ namespace CodeX.Games.MCLA.RSC5
         Unknown_14 = 0x4000,
         Unknown_15 = 0x8000,
     }
+    
     public struct Rsc5BoundMaterial
     {
         public Rsc5BoundsMaterialRef Ref { get; set; }
@@ -629,6 +617,7 @@ namespace CodeX.Games.MCLA.RSC5
             return Ref.ToString() + " : " + Unknown.ToString() + ": " + Flags.ToString();
         }
     }
+    
     [TC(typeof(EXP))] public struct Rsc5BoundsMaterialRef
     {
         public byte Index { get; set; }
@@ -668,6 +657,7 @@ namespace CodeX.Games.MCLA.RSC5
             return new Rsc5BoundsMaterialRef() { Index = b };
         }
     }
+    
     [TC(typeof(EXP))] public class Rsc5BoundsMaterialData
     {
         public string Name { get; set; }
@@ -695,6 +685,7 @@ namespace CodeX.Games.MCLA.RSC5
             return Name;
         }
     }
+    
     public static class Rsc5BoundsMaterialTypes
     {
         public static List<Rsc5BoundsMaterialData> Materials;
@@ -852,5 +843,4 @@ namespace CodeX.Games.MCLA.RSC5
             return m.Colour;
         }
     }
-
 }

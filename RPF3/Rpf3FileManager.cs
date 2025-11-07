@@ -1,8 +1,12 @@
 ﻿using CodeX.Core.Engine;
+using CodeX.Core.Numerics;
 using CodeX.Core.Utilities;
 using CodeX.Games.MCLA.Files;
 using CodeX.Games.MCLA.RSC5;
+using SharpDX.Direct3D11;
 using System.Collections.Concurrent;
+using System.Diagnostics;
+using System.Net;
 using System.Runtime.CompilerServices;
 using System.Text;
 
@@ -15,7 +19,8 @@ namespace CodeX.Games.MCLA.RPF3
         public Rpf3DataFileMgr DataFileMgr { get; set; }
         public Rpf3Store Store { get; set; }
 
-        private readonly ConcurrentDictionary<string, PiecePack> PackCache = new();
+        private readonly ConcurrentDictionary<string, TexturePack> TexturePackCache = new();
+        private readonly ConcurrentDictionary<string, PiecePack> PiecePackCache = new();
 
         public Rpf3FileManager(MCLAGame game) : base(game)
         {
@@ -30,48 +35,63 @@ namespace CodeX.Games.MCLA.RPF3
             InitFileType(".sps", "Shader Preset", FileTypeIcon.TextFile, FileTypeAction.ViewText);
             InitFileType(".ugc", "User-Generated Content", FileTypeIcon.TextFile, FileTypeAction.ViewText);
             InitFileType(".pso", "Metadata (PSO)", FileTypeIcon.XmlFile, FileTypeAction.ViewXml);
+            InitFileType(".mtl", "Material", FileTypeIcon.TextFile, FileTypeAction.ViewText);
             InitFileType(".xnd", "Path Nodes", FileTypeIcon.LinkFile, FileTypeAction.ViewModels);
             InitFileType(".xnv", "Nav Mesh", FileTypeIcon.SystemFile, FileTypeAction.ViewModels);
             InitFileType(".xvr", "Vehicle Record", FileTypeIcon.SystemFile, FileTypeAction.ViewModels);
-            InitFileType(".fxc", "Compiled Shaders", FileTypeIcon.SystemFile, FileTypeAction.ViewHex);
-            InitFileType(".xapb", "Ambient Ped", FileTypeIcon.Piece, FileTypeAction.ViewModels, true, true);
-            InitFileType(".xft", "Fragment", FileTypeIcon.Piece, FileTypeAction.ViewModels, false, false);
-            InitFileType(".cut", "Cutscene", FileTypeIcon.Level, FileTypeAction.ViewXml, true);
-            InitFileType(".xtd", "Texture Dictionary", FileTypeIcon.Image, FileTypeAction.ViewTextures, true, true);
-            InitFileType(".xcd", "Clip Dictionary", FileTypeIcon.Animation, FileTypeAction.ViewXml, true);
-            InitFileType(".xpt", "Particle Effect", FileTypeIcon.Animation, FileTypeAction.ViewModels, true, true);
-            InitFileType(".xbn", "Static Collisions", FileTypeIcon.Collisions, FileTypeAction.ViewModels, true);
-            InitFileType(".xbd", "Collision Dictionary", FileTypeIcon.Collisions, FileTypeAction.ViewModels, true);
+            InitFileType(".fxc", "Compiled Shaders", FileTypeIcon.SystemFile);
+            InitFileType(".xapb", "Ambient Ped Body", FileTypeIcon.Piece, FileTypeAction.ViewModels);
+            InitFileType(".xaph", "Ambient Ped Hierarchy", FileTypeIcon.File);
+            InitFileType(".xdr", "Drawable", FileTypeIcon.Piece, FileTypeAction.ViewModels);
+            InitFileType(".xft", "Fragment", FileTypeIcon.Piece, FileTypeAction.ViewModels);
+            InitFileType(".cut", "Cutscene", FileTypeIcon.Level, FileTypeAction.ViewXml);
+            InitFileType(".xtd", "Texture Dictionary", FileTypeIcon.Image, FileTypeAction.ViewTextures);
+            InitFileType(".xcd", "Clip Dictionary", FileTypeIcon.Animation, FileTypeAction.ViewXml);
+            InitFileType(".xpt", "Particle Effect", FileTypeIcon.Animation, FileTypeAction.ViewModels);
+            InitFileType(".xbn", "Static Collisions", FileTypeIcon.Collisions, FileTypeAction.ViewModels);
+            InitFileType(".xbd", "Collision Dictionary", FileTypeIcon.Collisions, FileTypeAction.ViewModels);
             InitFileType(".ide", "Item Definitions", FileTypeIcon.Library, FileTypeAction.ViewText);
             InitFileType(".ipl", "Item Placements", FileTypeIcon.Process, FileTypeAction.ViewText);
             InitFileType(".awc", "Audio Wave Container", FileTypeIcon.Audio, FileTypeAction.ViewAudio);
-            InitFileType(".rel", "Audio Data (REL)", FileTypeIcon.AudioPlayback, FileTypeAction.ViewAudio, true);
+            InitFileType(".rel", "Audio Data (REL)", FileTypeIcon.AudioPlayback, FileTypeAction.ViewAudio);
             InitFileType(".nametable", "Name Table", FileTypeIcon.TextFile, FileTypeAction.ViewText);
-            InitFileType(".xpdb", "Pose Matcher Database", FileTypeIcon.SystemFile, FileTypeAction.ViewXml, true);
-            InitFileType(".sco", "Script", FileTypeIcon.Script, FileTypeAction.ViewHex, false);
-            InitFileType(".xat", "Action Tree", FileTypeIcon.Animation, FileTypeAction.ViewHex, false);
-            InitFileType(".xpfl", "Particle Effects Library", FileTypeIcon.Animation, FileTypeAction.ViewHex, false);
-            InitFileType(".xsd", "XSD File", FileTypeIcon.Library, FileTypeAction.ViewXml, false);
-            InitFileType(".xshp", "BitMap Texture", FileTypeIcon.Piece, FileTypeAction.ViewModels);
-
-            InitFileType(".drawable", "Drawable", FileTypeIcon.Piece, FileTypeAction.ViewModels); //Custom extension until we get the actual filenames
-            InitFileType(".ppp", "Post-Processing Pipeline", FileTypeIcon.TextFile, FileTypeAction.ViewText, false);
-            InitFileType(".mccp", "Midnight Club Checkpoint", FileTypeIcon.TextFile, FileTypeAction.ViewText, false);
-            InitFileType(".tune", "TUNE File", FileTypeIcon.TextFile, FileTypeAction.ViewText, false);
-            InitFileType(".ped", "PED File", FileTypeIcon.TextFile, FileTypeAction.ViewText, false);
-            InitFileType(".list", "LIST File", FileTypeIcon.TextFile, FileTypeAction.ViewText, false);
-            InitFileType(".lst", "LIST File", FileTypeIcon.TextFile, FileTypeAction.ViewText, false);
-            InitFileType(".type", "TYPE File", FileTypeIcon.TextFile, FileTypeAction.ViewText, false);
-            InitFileType(".mcform", "MCFORM File", FileTypeIcon.TextFile, FileTypeAction.ViewText, false);
-            InitFileType(".mcuiclass", "MCUICLASS File", FileTypeIcon.TextFile, FileTypeAction.ViewText, false);
-            InitFileType(".uilogic", "UILOGIC File", FileTypeIcon.TextFile, FileTypeAction.ViewText, false);
-            InitFileType(".hudmap", "HUDMAP File", FileTypeIcon.TextFile, FileTypeAction.ViewText, false);
-            InitFileType(".mesh", "MESH File", FileTypeIcon.TextFile, FileTypeAction.ViewText, false);
-            InitFileType(".map", "MAP File", FileTypeIcon.TextFile, FileTypeAction.ViewText, false);
-            InitFileType(".maps", "MAPS File", FileTypeIcon.TextFile, FileTypeAction.ViewText, false);
-            InitFileType(".grid", "GRID File", FileTypeIcon.TextFile, FileTypeAction.ViewText, false);
-            InitFileType(".aogrid", "AOGRID File", FileTypeIcon.TextFile, FileTypeAction.ViewText, false);
-            InitFileType(".career", "CAREER File", FileTypeIcon.TextFile, FileTypeAction.ViewText, false);
+            InitFileType(".xpdb", "Pose Matcher Database", FileTypeIcon.SystemFile, FileTypeAction.ViewXml);
+            InitFileType(".sco", "Script", FileTypeIcon.Script, FileTypeAction.ViewHex);
+            InitFileType(".xat", "Action Tree", FileTypeIcon.Animation);
+            InitFileType(".xpfl", "Particle Effects Library", FileTypeIcon.Animation);
+            InitFileType(".xsd", "XSD File", FileTypeIcon.Library, FileTypeAction.ViewXml);
+            InitFileType(".xshp", "Car Vinyl Shape", FileTypeIcon.Image, FileTypeAction.ViewTextures);
+            InitFileType(".xsf", "Flash UI", FileTypeIcon.Image);
+            InitFileType(".xrsc", "Model Resource", FileTypeIcon.Piece, FileTypeAction.ViewModels);
+            InitFileType(".xtp", "Vehicle Top Part", FileTypeIcon.File);
+            InitFileType(".xtl", "Damage Textures", FileTypeIcon.Image, FileTypeAction.ViewTextures);
+            InitFileType(".xspm", "Streaming Pack Map", FileTypeIcon.File);
+            InitFileType(".xct", "City File/ Car Tuning", FileTypeIcon.File);
+            InitFileType(".xcs", "City Sector", FileTypeIcon.Piece, FileTypeAction.ViewModels);
+            InitFileType(".xapk", "Animation Pack", FileTypeIcon.File);
+            InitFileType(".xov", "Overlay", FileTypeIcon.File);
+            InitFileType(".xwt", "Wheel Texture", FileTypeIcon.Image, FileTypeAction.ViewTextures);
+            InitFileType(".xlm", "Light Manager", FileTypeIcon.File);
+            InitFileType(".xck", "Prop Instance Chunk", FileTypeIcon.File);
+            InitFileType(".xmp", "MultiProp Definition", FileTypeIcon.File);
+            InitFileType(".xmd", "Map District LOD", FileTypeIcon.Piece, FileTypeAction.ViewModels);
+            InitFileType(".ppp", "Post-Processing Pipeline", FileTypeIcon.TextFile, FileTypeAction.ViewText);
+            InitFileType(".mccp", "Midnight Club Checkpoint", FileTypeIcon.TextFile, FileTypeAction.ViewText);
+            InitFileType(".tune", "TUNE File", FileTypeIcon.TextFile, FileTypeAction.ViewText);
+            InitFileType(".ped", "PED File", FileTypeIcon.TextFile, FileTypeAction.ViewText);
+            InitFileType(".list", "LIST File", FileTypeIcon.TextFile, FileTypeAction.ViewText);
+            InitFileType(".lst", "LIST File", FileTypeIcon.TextFile, FileTypeAction.ViewText);
+            InitFileType(".type", "TYPE File", FileTypeIcon.TextFile, FileTypeAction.ViewText);
+            InitFileType(".mcform", "MCFORM File", FileTypeIcon.TextFile, FileTypeAction.ViewText);
+            InitFileType(".mcuiclass", "MCUICLASS File", FileTypeIcon.TextFile, FileTypeAction.ViewText);
+            InitFileType(".uilogic", "UILOGIC File", FileTypeIcon.TextFile, FileTypeAction.ViewText);
+            InitFileType(".hudmap", "HUDMAP File", FileTypeIcon.TextFile, FileTypeAction.ViewText);
+            InitFileType(".mesh", "MESH File", FileTypeIcon.TextFile, FileTypeAction.ViewText);
+            InitFileType(".map", "MAP File", FileTypeIcon.TextFile, FileTypeAction.ViewText);
+            InitFileType(".maps", "MAPS File", FileTypeIcon.TextFile, FileTypeAction.ViewText);
+            InitFileType(".grid", "GRID File", FileTypeIcon.TextFile, FileTypeAction.ViewText);
+            InitFileType(".aogrid", "AOGRID File", FileTypeIcon.TextFile, FileTypeAction.ViewText);
+            InitFileType(".career", "CAREER File", FileTypeIcon.TextFile, FileTypeAction.ViewText);
         }
 
         public override void InitCreateInfos()
@@ -290,14 +310,15 @@ namespace CodeX.Games.MCLA.RPF3
                     return TextUtil.GetUTF8Text(data);
             }
 
-            var fmtext = "";
-            if (file is Rpf3FileEntry fe)
+            newfilename = file.Name + ".xml";
+            var pack = LoadDataBagPack(file, data);
+
+            if (pack != null)
             {
-                //TODO: determine actual metadata file format!
-                fmtext = ".pso";
+                infoObject = pack;
+                return pack.Bag.ToXml();
             }
-            newfilename = file.Name + fmtext + ".xml";
-            return string.Empty;
+            return "Sorry, CodeX currently cannot convert this file to XML.";
         }
 
         public override byte[] ConvertFromXml(string xml, string filename, string folder = "")
@@ -348,6 +369,24 @@ namespace CodeX.Games.MCLA.RPF3
                 xtd.Load(data);
                 return xtd;
             }
+            else if (file.NameLower.EndsWith(".xtl"))
+            {
+                var xtl = new XtlFile(entry);
+                xtl.Load(data);
+                return xtl;
+            }
+            else if (file.NameLower.EndsWith(".xwt"))
+            {
+                var xwt = new XwtFile(entry);
+                xwt.Load(data);
+                return xwt;
+            }
+            else if (file.NameLower.EndsWith(".xshp"))
+            {
+                var xshp = new XshpFile(entry);
+                xshp.Load(data);
+                return xshp;
+            }
             return null;
         }
 
@@ -366,151 +405,155 @@ namespace CodeX.Games.MCLA.RPF3
                 xapb.Load(data);
                 return xapb;
             }
-            else if (entry.NameLower.EndsWith(".xft"))
+            else if (entry.NameLower.EndsWith(".xrsc"))
             {
-                var xft = new XftFile(entry);
-                xft.Load(data);
-                return xft;
+                var xrsc = new XrscFile(entry);
+                xrsc.Load(data);
+                return xrsc;
             }
-            else if (entry.NameLower.EndsWith(".xshp"))
-            {
-                var xshp = new XshpFile(entry);
-                xshp.Load(data);
-                if (loadDependencies)
-                {
-                    LoadDependencies(xshp);
-                    xshp.DependenciesLoaded = true;
-                }
-                return xshp;
-            }
-            else if (entry.NameLower.EndsWith(".drawable"))
+            else if (entry.NameLower.EndsWith(".xdr"))
             {
                 var drawable = new DrawableFile(entry);
                 drawable.Load(data);
                 return drawable;
             }
-            return null;
+            else if (entry.NameLower.EndsWith(".xmd"))
+            {
+                var xmd = new XmdFile(entry);
+                xmd.Load(data);
+                if (loadDependencies) LoadDependencies(xmd);
+                return xmd;
+            }
+            else //xcs assumed
+            {
+                var xcs = new XcsFile(entry);
+                xcs.Load(data);
+                if (loadDependencies)
+                {
+                    LoadDependencies(xcs);
+                    xcs.DependenciesLoaded = true;
+                }
+                return xcs;
+            }
         }
 
         public void LoadDependencies(PiecePack pack)
         {
             if (pack?.Pieces == null) return;
+            foreach (var piece in pack.Pieces.Values)
+            {
+                if (piece is not IRsc5DrawableRoot drawable) continue;
+                ResolveShaderTextures(drawable);
+                SetGeoShaderTextures(drawable);
+            }
+        }
 
+        private void ResolveShaderTextures(IRsc5DrawableRoot drawable)
+        {
             var fm = Game.GetFileManager() as Rpf3FileManager;
             var dfm = fm?.DataFileMgr;
-            if (dfm == null || fm.Store.TexturesCityDict == null) return;
+            var cityDict = fm.Store.TexturesCityDict;
+            var files = dfm.StreamEntries[Rpf3ResourceType.Generic];
+            var cache = new Dictionary<string, Texture>(StringComparer.OrdinalIgnoreCase);
 
-            //Cache textures
-            if (pack is XshpFile xshp && xshp.City != null)
+            foreach (var shader in drawable.ShaderGroup.Shaders.Items)
             {
-                var seperatedTextures = new Dictionary<string, Texture>(StringComparer.OrdinalIgnoreCase);
-                var cutItems = dfm.StreamEntries[Rpf3ResourceType.Drawable];
-                var xshpCity = dfm.StreamEntries[Rpf3ResourceType.BitMap];
-
-                foreach (var c in cutItems)
+                if (shader?.Params == null) continue;
+                foreach (var param in shader.Params)
                 {
-                    var pp = LoadPiecePack(c.Value);
-                    var drFolderHash = new JenkHash(pp?.FileInfo?.Parent?.NameLower);
-                    if (drFolderHash != 0x83671C92) continue; //CutsceneItems
-
-                    foreach (var piece in pp.Pieces.Values)
+                    if (param.Type != 0 || param.Texture == null || param.Texture.Data != null) continue;
+                    var key = Rpf3Crypto.NormalizeTexName(param.Texture.Name);
+                    
+                    if (TryResolveTexture(key, cityDict, files, cache, out var result))
                     {
-                        if (piece?.TexturePack?.Textures == null) continue;
-                        foreach (var tex in piece.TexturePack.Textures.Values)
-                        {
-                            if (tex != null)
-                            {
-                                seperatedTextures[tex.Name.ToLowerInvariant()] = tex;
-                            }
-                        }
-                    }
-                }
-
-                if (seperatedTextures.Count == 0 && (fm.Store.TexturesCityDict == null || fm.Store.TexturesCityDict.Count == 0)) return;
-
-                //Walk each piece and resolve textures
-                foreach (var kvp in pack.Pieces)
-                {
-                    var piece = kvp.Value;
-                    if (piece?.AllModels == null) continue;
-
-                    foreach (var mesh in piece.AllModels.SelectMany(p => p.Meshes))
-                    {
-                        if (mesh?.Textures == null) continue;
-                        for (int i = 0; i < mesh.Textures.Length; i++)
-                        {
-                            var texture = mesh.Textures[i];
-                            if (texture == null || texture?.Data != null) continue; //Skip if null or already loaded
-
-                            var texName = texture.Name.ToLowerInvariant();
-                            var texNameDds = texName + ".dds";
-                            Texture resolved = null;
-
-                            //Check items cache
-                            if (seperatedTextures.TryGetValue(texName, out var cutTex))
-                            {
-                                resolved = cutTex;
-                            }
-                            else if (fm.Store.TexturesCityDict.TryGetValue(texNameDds, out var matches)) //Else check city textures dict
-                            {
-                                foreach (var item in matches)
-                                {
-                                    if (!xshpCity.TryGetValue(item.FileHash, out var xshpEntry)) continue;
-                                    var pp = GetOrLoadPack(xshpEntry);
-                                    if (pp == null) continue;
-
-                                    foreach (var xshpPiece in pp.Pieces.Values)
-                                    {
-                                        if (xshpPiece.TexturePack.Textures.TryGetValue(texNameDds, out var xshpTex))
-                                        {
-                                            resolved = xshpTex;
-                                            break;
-                                        }
-                                    }
-                                    if (resolved != null) break;
-                                }
-                            }
-
-                            //Apply resolved texture
-                            if (resolved != null)
-                            {
-                                lock (mesh.Textures)
-                                {
-                                    mesh.Textures[i] = resolved;
-                                }
-                                UpdateShaderTextures(piece, resolved);
-                            }
-                        }
+                        param.Texture = (Rsc5Texture)result;
                     }
                 }
             }
-
         }
 
-        private static void UpdateShaderTextures(Piece piece, Texture tex)
+        private static void SetGeoShaderTextures(IRsc5DrawableRoot drawable)
         {
-            if (piece is Rsc5SimpleDrawableBase drawable)
+            foreach (var model in drawable?.Lod?.ModelsData.Items)
             {
-                foreach (var shader in drawable.ShaderGroup.Item?.Shaders.Items ?? Enumerable.Empty<Rsc5Shader>())
+                if (model?.Geometries.Items == null) continue;
+                var geoms = model.Geometries.Items;
+                
+                foreach (var geom in geoms)
                 {
-                    foreach (var param in shader?.Params ?? Enumerable.Empty<Rsc5ShaderParameter>())
+                    if (geom?.ShaderRef?.Params == null || geom.Textures == null) continue;
+                    var parms = geom.ShaderRef.Params;
+                    var slots = geom.Textures;
+
+                    for (int i = 0; i < slots.Length; i++)
                     {
-                        if (param.Type != 0 || param.Texture == null) continue;
-                        var pName = Rpf3Crypto.NormalizeTexName(param.Texture.Name);
-                        var tName = Rpf3Crypto.NormalizeTexName(tex.Name);
-                        
-                        if (pName == tName)
+                        if (slots[i] != null && slots[i].Data != null) continue;
+                        for (int p = 0; p < parms.Length; p++)
                         {
-                            param.Texture = (Rsc5Texture)tex;
+                            var prm = parms[p];
+                            if (prm.Type != 0 || prm.Texture == null) continue;
+
+                            if (Rpf3Crypto.NormalizeTexName(prm.Texture.Name) == Rpf3Crypto.NormalizeTexName(slots[i]?.Name))
+                            {
+                                slots[i] = prm.Texture;
+                                break;
+                            }
                         }
                     }
                 }
             }
         }
 
-        private PiecePack GetOrLoadPack(Rpf3FileEntry entry)
+        private bool TryResolveTexture(string baseName, Dictionary<JenkHash, List<Rpf3TextureStoreItem>> cityDict, Dictionary<JenkHash, Rpf3FileEntry> files, Dictionary<string, Texture> cache, out Texture resolved)
         {
-            return PackCache.GetOrAdd(entry.PathLower, _ => LoadPiecePack(entry));
+            if (cache.TryGetValue(baseName, out resolved)) return true;
+            var dds = baseName + ".dds";
+            var hash = new JenkHash(dds);
+
+            if (!cityDict.TryGetValue(hash, out var matches)) return false;
+            foreach (var item in matches)
+            {
+                if (!files.TryGetValue(item.FileHash, out var entry)) continue;
+
+                var resolvedTex = entry.NameLower.EndsWith(".xtd") ? ResolveFromXtd(entry, dds) : ResolveFromXcs(entry, dds);
+                if (resolvedTex != null)
+                {
+                    cache[baseName] = resolved = resolvedTex;
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        private Texture ResolveFromXtd(Rpf3FileEntry entry, string texNameDds)
+        {
+            var pack = GetOrLoadTexturePack(entry);
+            return pack?.Textures.TryGetValue(texNameDds, out var t) == true ? t : null;
+        }
+
+        private Texture ResolveFromXcs(Rpf3FileEntry entry, string texNameDds)
+        {
+            var pack = GetOrLoadPiecePack(entry);
+            if (pack == null) return null;
+
+            foreach (var p in pack.Pieces.Values)
+            {
+                if (p.TexturePack.Textures.TryGetValue(texNameDds, out var t))
+                {
+                    return t;
+                }
+            }
+            return null;
+        }
+
+        private TexturePack GetOrLoadTexturePack(Rpf3FileEntry entry)
+        {
+            return TexturePackCache.GetOrAdd(entry.PathLower, _ => LoadTexturePack(entry));
+        }
+
+        private PiecePack GetOrLoadPiecePack(Rpf3FileEntry entry)
+        {
+            return PiecePackCache.GetOrAdd(entry.PathLower, _ => LoadPiecePack(entry));
         }
 
         public override AudioPack LoadAudioPack(GameArchiveFileInfo file, byte[] data = null)
@@ -555,7 +598,7 @@ namespace CodeX.Games.MCLA.RPF3
         public Rpf3FileManager FileManager = fman;
         public Dictionary<string, Rpf3DataFileDevice> Devices;
         public Dictionary<Rpf3ResourceType, Dictionary<JenkHash, Rpf3FileEntry>> StreamEntries;
-        public Dictionary<JenkHash, XshpFile> XshpFiles;
+        public Dictionary<JenkHash, XcsFile> XcsFiles;
 
         public void Init()
         {
@@ -566,8 +609,10 @@ namespace CodeX.Games.MCLA.RPF3
 
             this.Devices = [];
             this.StreamEntries = [];
-            this.XshpFiles = [];
+            this.XcsFiles = [];
+            
             this.LoadFiles();
+            this.IndexCityFiles();
         }
 
         private void LoadFiles()
@@ -591,32 +636,41 @@ namespace CodeX.Games.MCLA.RPF3
             }
         }
 
-        public void LoadCityFiles(MCLAMapFileCache mapCache)
+        public void IndexCityFiles()
         {
-            var cache = mapCache.GetCache(Rpf3ResourceType.BitMap);
-            foreach (var se in this.StreamEntries[Rpf3ResourceType.BitMap])
+            XcsFiles ??= [];
+            foreach (var se in StreamEntries[Rpf3ResourceType.Generic])
             {
                 var fe = se.Value;
-                if (fe == null || new JenkHash(fe.Parent.Name) != 0x45A0781) continue; //sc (South Central)
+                if (fe.Parent == null || new JenkHash(fe.Parent.Name) != 0x45A0781) continue; //sc
+                if (!fe.Name.EndsWith(".xcs")) continue;
 
-                var xshpData = fe.Archive.ExtractFile(fe);
-                var ident = (Rsc5XshpType)Rpf3Crypto.Swap(BitConverter.ToUInt32(xshpData, 0));
-
-                if (ident == Rsc5XshpType.CITY && xshpData != null)
-                {
-                    Core.Engine.Console.Write("Rpf3FileManager", fe.Name);
-                    var cacheItem = new StreamingCacheEntry();
-                    var piecePack = FileManager.LoadPiecePack(fe, xshpData);
-
-                    cacheItem.Object = piecePack;
-                    cacheItem.LastUseFrame = mapCache.CurrentFrame;
-                    cache[fe.NameHash] = cacheItem;
-
-                    var hash = fe.ShortNameHash;
-                    JenkIndex.Ensure(((XshpFile)piecePack).Name, "MCLA");
-                    this.XshpFiles[hash] = (XshpFile)piecePack;
-                }
+                var xcs = new XcsFile(fe);
+                XcsFiles[xcs.Hash] = xcs;
             }
+        }
+
+        public XctFile GetSectorBounds()
+        {
+            if (StreamEntries[Rpf3ResourceType.Generic].TryGetValue(0x3CDD416, out var entry)) //city.xct
+            {
+                var data = this.FileManager.EnsureFileData(entry, null);
+                var xct = new XctFile(entry);
+                xct.Load(data);
+                return xct;
+            }
+            return null;
+        }
+
+        public XmdFile LoadMapLod()
+        {
+            if (StreamEntries[Rpf3ResourceType.Generic].TryGetValue(0xA6E77868, out var entry)) //lod.xmd
+            {
+                var data = this.FileManager.EnsureFileData(entry, null);
+                var xmd = this.FileManager.LoadPiecePack(entry, data, true) as XmdFile;
+                return xmd;
+            }
+            return null;
         }
 
         public Rpf3FileEntry TryGetStreamEntry(JenkHash hash, Rpf3ResourceType ext)
@@ -657,55 +711,63 @@ namespace CodeX.Games.MCLA.RPF3
     {
         public Rpf3FileManager FileMan = fileman;
         public List<Rpf3TextureStoreItem> TexturesCity;
-        public Dictionary<string, List<Rpf3TextureStoreItem>> TexturesCityDict;
+        public Dictionary<JenkHash, List<Rpf3TextureStoreItem>> TexturesCityDict;
 
         public void SaveStartupCache(BinaryWriter bw)
         {
-            var bmp = FileMan.DataFileMgr.StreamEntries[Rpf3ResourceType.BitMap];
+            Core.Engine.Console.Write("Rpf3FileManager", "Building MCLA startup cache");
+
+            var bmp = FileMan.DataFileMgr.StreamEntries[Rpf3ResourceType.Generic];
             var textureItemsSet = new HashSet<Rpf3TextureStoreItem>();
 
-            Core.Engine.Console.Write("Rpf3FileManager", "Building MCLA startup cache");
+            var lodTxds = bmp.Where(e => e.Key == 0x5674B600 || e.Key == 0x5DDDB21D).Select(e => e.Value).ToList(); //lod_0.xtd & common.xtd
+            foreach (var txd in lodTxds)
+            {
+                var lodTxp = FileMan.LoadTexturePack(txd);
+                foreach (var tex in lodTxp.Textures)
+                {
+                    var item = new Rpf3TextureStoreItem()
+                    {
+                        Texture = tex.Key,
+                        FileHash = txd.NameOffset
+                    };
+                    textureItemsSet.Add(item);
+                }
+            }
+
             Parallel.ForEach(bmp, kv =>
             {
-                var value = kv.Value;
-                if (value == null) return;
+                var entry = kv.Value;
+                if (entry == null) return;
+                if (!entry.NameLower.EndsWith(".xcs")) return;
 
-                var folderHash = new JenkHash(value.Parent?.NameLower);
-                if (folderHash != 0x45A0781) return; //sc (South Central)
-
-                var fileHash = new JenkHash(value.NameLower);
-                if (fileHash == 0x7F60A02B) return; //0x5674B600.xshp, not thread-safe
-
-                var pack = (XshpFile)FileMan.LoadPiecePack(value);
+                var pack = (XcsFile)FileMan.LoadPiecePack(entry);
                 if (pack != null)
                 {
-                    var localTextureItems = new ConcurrentBag<Rpf3TextureStoreItem>();
+                    var localBag = new ConcurrentBag<Rpf3TextureStoreItem>();
                     foreach (var p in pack.Pieces.Values)
                     {
-                        if (p == null || p.TexturePack?.Textures == null) continue;
-                        foreach (var tex in p.TexturePack.Textures)
+                        foreach (var tex in p?.TexturePack?.Textures ?? Enumerable.Empty<KeyValuePair<string, Texture>>())
                         {
                             var item = new Rpf3TextureStoreItem()
                             {
                                 Texture = tex.Key,
-                                FileHash = value.NameOffset
+                                FileHash = entry.NameOffset
                             };
-                            localTextureItems.Add(item);
+                            localBag.Add(item);
                         }
                     }
 
                     lock (textureItemsSet)
                     {
-                        foreach (var item in localTextureItems)
+                        foreach (var item in localBag)
                         {
                             textureItemsSet.Add(item);
                         }
                     }
                 }
             });
-
-            var textureItemsList = textureItemsSet.ToList();
-            SerializeItems(bw, textureItemsList);
+            SerializeItems(bw, [.. textureItemsSet]);
         }
 
         public void LoadStartupCache(BinaryReader br)
@@ -717,13 +779,14 @@ namespace CodeX.Games.MCLA.RPF3
 
         public void BuildTextureDict()
         {
-            TexturesCityDict = new Dictionary<string, List<Rpf3TextureStoreItem>>(StringComparer.OrdinalIgnoreCase);
+            TexturesCityDict = [];
             foreach (var item in TexturesCity)
             {
-                if (!TexturesCityDict.TryGetValue(item.Texture, out var list))
+                var hash = new JenkHash(item.Texture);
+                if (!TexturesCityDict.TryGetValue(hash, out var list))
                 {
                     list = [];
-                    TexturesCityDict[item.Texture] = list;
+                    TexturesCityDict[hash] = list;
                 }
                 list.Add(item);
             }

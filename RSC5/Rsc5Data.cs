@@ -584,35 +584,11 @@ namespace CodeX.Games.MCLA.RSC5
 
             var p = reader.Position;
             reader.Position = Position;
+
             Items = reader.ReadArray<T>(Count);
-            reader.Position = p;
+            Rpf3Crypto.SwapEndianness(Items);
+            Rpf3Crypto.TransformToZXY(Items);
 
-            static void swapArray<T>(T[] array, Func<T, T> swapFunc)
-            {
-                for (int i = 0; i < array.Length; i++)
-                    array[i] = swapFunc(array[i]);
-            }
-
-            //Swap endianness
-            if (Items is uint[] uints)
-            {
-                swapArray(uints, Rpf3Crypto.Swap);
-            }
-            else if (Items is JenkHash[] hashes)
-            {
-                swapArray(hashes, Rpf3Crypto.Swap);
-            }
-        }
-
-        public void Read(Rsc5DataReader reader, uint count)
-        {
-            Position = reader.ReadUInt32();
-            Count = count;
-            Capacity = count;
-
-            var p = reader.Position;
-            reader.Position = Position;
-            Items = reader.ReadArray<T>(count);
             reader.Position = p;
         }
 
@@ -667,7 +643,7 @@ namespace CodeX.Games.MCLA.RSC5
             set => Items[index] = value;
         }
 
-        public override string ToString()
+        public override readonly string ToString()
         {
             return "Count: " + (Items?.Length.ToString() ?? "0");
         }
@@ -881,48 +857,6 @@ namespace CodeX.Games.MCLA.RSC5
         }
     }
 
-    [TC(typeof(EXP))] public class Rsc5String : Rsc5BlockBase
-    {
-        public override ulong BlockLength => 8;
-        public uint Position;
-        public string Value;
-        public uint FixedLength;
-
-        public Rsc5String()
-        {
-        }
-
-        public Rsc5String(uint fixedLength)
-        {
-            FixedLength = fixedLength;
-        }
-
-        public override void Read(Rsc5DataReader reader)
-        {
-            Position = reader.ReadUInt32();
-            if (Position != 0)
-            {
-                var p = reader.Position;
-                reader.Position = Position;
-
-                if (FixedLength != 0)
-                    Value = Encoding.ASCII.GetString(reader.ReadArray<byte>(40, false)).Trim('\0');
-                else
-                    Value = reader.ReadString();
-                reader.Position = p;
-            }
-        }
-
-        public override void Write(Rsc5DataWriter writer)
-        {
-        }
-
-        public override string ToString()
-        {
-            return Value;
-        }
-    }
-
     [TC(typeof(EXP))] public struct Rsc5StrA(string str, ushort capacity)
     {
         public uint Position { get; set; } = 0;
@@ -986,6 +920,71 @@ namespace CodeX.Games.MCLA.RSC5
         }
     }
 
+    [TC(typeof(EXP))] public class Rsc5String : Rsc5BlockBase
+    {
+        public override ulong BlockLength => 8;
+        public uint Position;
+        public string Value;
+        public uint FixedLength;
+
+        public Rsc5String()
+        {
+        }
+
+        public Rsc5String(uint fixedLength)
+        {
+            FixedLength = fixedLength;
+        }
+
+        public override void Read(Rsc5DataReader reader)
+        {
+            Position = reader.ReadUInt32();
+            if (Position != 0)
+            {
+                var p = reader.Position;
+                reader.Position = Position;
+
+                if (FixedLength != 0)
+                    Value = Encoding.ASCII.GetString(reader.ReadArray<byte>(40, false)).Trim('\0');
+                else
+                    Value = reader.ReadString();
+                reader.Position = p;
+            }
+        }
+
+        public override void Write(Rsc5DataWriter writer)
+        {
+        }
+
+        public override string ToString()
+        {
+            return Value;
+        }
+    }
+
+    [TC(typeof(EXP))] public class Rsc5StringA : IRsc5Block
+    {
+        public ulong BlockLength => 8;
+        public ulong FilePosition { get; set; }
+        public bool IsPhysical => false;
+        public Rsc5StrA String { get; set; }
+
+        public void Read(Rsc5DataReader reader)
+        {
+            String = reader.ReadStrA();
+        }
+
+        public void Write(Rsc5DataWriter writer)
+        {
+            writer.WriteStrA(String);
+        }
+
+        public override string ToString()
+        {
+            return String.ToString();
+        }
+    }
+
     [TC(typeof(EXP))] public abstract class Rsc5BlockBase : IRsc5Block
     {
         public ulong FilePosition { get; set; }
@@ -998,17 +997,16 @@ namespace CodeX.Games.MCLA.RSC5
     [TC(typeof(EXP))] public class Rsc5BlockMap : Rsc5BlockBase
     {
         public override ulong BlockLength => 4;
-
-        public uint Unknown1 { get; set; }
+        public uint Block { get; set; }
 
         public override void Read(Rsc5DataReader reader)
         {
-            Unknown1 = reader.ReadUInt32();
+            Block = reader.ReadUInt32();
         }
 
         public override void Write(Rsc5DataWriter writer)
         {
-            throw new NotImplementedException();
+            writer.WriteUInt32(Block);
         }
     }
 
@@ -1027,10 +1025,47 @@ namespace CodeX.Games.MCLA.RSC5
         }
     }
 
-    [TC(typeof(EXP))]  public interface IRsc5Block
+    [TC(typeof(EXP))] public abstract class Rsc5BlockBaseMap : Rsc5FileBase //rage::pgBase
     {
-        ulong FilePosition { get; set; }
-        ulong BlockLength { get; }
+        public Rsc5Ptr<Rsc5BlockMap> BlockMap { get; set; }
+
+        public override void Read(Rsc5DataReader reader)
+        {
+            base.Read(reader);
+            BlockMap = reader.ReadPtr<Rsc5BlockMap>();
+        }
+
+        public override void Write(Rsc5DataWriter writer)
+        {
+            base.Write(writer);
+            writer.WritePtr(BlockMap);
+        }
+    }
+
+    [TC(typeof(EXP))] public abstract class Rsc5BlockBaseMapRef : Rsc5BlockBaseMap //rage::pgBaseRefCounted
+    {
+        public uint RefCount { get; set; } //m_RefCount
+
+        public override void Read(Rsc5DataReader reader)
+        {
+            base.Read(reader);
+            RefCount = reader.ReadUInt32();
+        }
+
+        public override void Write(Rsc5DataWriter writer)
+        {
+            base.Write(writer);
+            writer.WriteUInt32(RefCount);
+        }
+
+        public override string ToString()
+        {
+            return "References: " + RefCount.ToString();
+        }
+    }
+
+    [TC(typeof(EXP))]  public interface IRsc5Block : BlockBase
+    {
         bool IsPhysical { get; }
         void Read(Rsc5DataReader reader);
         void Write(Rsc5DataWriter writer);

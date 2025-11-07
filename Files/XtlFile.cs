@@ -4,30 +4,33 @@ using CodeX.Games.MCLA.RSC5;
 
 namespace CodeX.Games.MCLA.Files
 {
-    class XtdFile(Rpf3FileEntry file) : TexturePack(file)
+    class XtlFile(Rpf3FileEntry file) : TexturePack(file)
     {
-        public Rsc5TextureDictionary TextureDictionary = null;
+        public Rsc5XtlTextureDictionary Taillights = null;
 
         public override void Load(byte[] data)
         {
             var e = FileInfo as Rpf3ResourceFileEntry;
             var r = new Rsc5DataReader(e, data, Core.Utilities.DataEndianess.BigEndian);
 
-            TextureDictionary = r.ReadBlock<Rsc5TextureDictionary>();
+            Taillights = r.ReadBlock<Rsc5XtlTextureDictionary>();
             Textures = [];
 
-            var textures = TextureDictionary?.Textures.Items;
-            var hashes = TextureDictionary?.Hashes.Items;
-
-            if (textures != null && hashes != null)
+            if (Taillights != null)
             {
-                for (int i = 0; i < textures.Length; i++)
+                var texs = new[]
                 {
-                    var tex = textures[i];
-                    var hash = hashes[i];
+                    Taillights.ZoneTexture.Item,
+                    Taillights.MaxDamageTexture.Item,
+                    Taillights.ScratchTexture.Item
+                };
 
-                    tex.Name ??= hash.ToString();
-                    Textures[tex.Name] = tex;
+                foreach (var tex in texs)
+                {
+                    if (tex != null)
+                    {
+                        Textures[tex.Name] = tex;
+                    }
                 }
             }
         }

@@ -5,14 +5,83 @@ using SharpDX.Direct3D11;
 
 namespace CodeX.Games.MCLA.RSC5
 {
-    public class Rsc5TextureDictionary : Rsc5FileBase
+    public class Rsc5XtlTextureDictionary : Rsc5BlockBaseMap
+    {
+        public override ulong BlockLength => 80;
+        public override uint VFT { get; set; } = 0x0057C228;
+        public uint Unknown_8h { get; set; } //Always 0?
+        public Rsc5Ptr<Rsc5ShaderGroup> ShaderGroup { get; set; }
+        public Rsc5Ptr<Rsc5BlockMap> Unknown_10h { get; set; }
+        public Rsc5Ptr<Rsc5Texture> ZoneTexture { get; set; }
+        public Rsc5Ptr<Rsc5Texture> MaxDamageTexture { get; set; }
+        public Rsc5Ptr<Rsc5Texture> ScratchTexture { get; set; }
+        public float Unknown_20h { get; set; } = 0.0f; //Always 0.0f?
+        public float Unknown_24h { get; set; } = 1.0f; //Always 1.0f?
+        public float Unknown_28h { get; set; } = 0.0f; //Always 0.0f?
+        public float Unknown_2Ch { get; set; } = 1.0f; //Always 1.0f?
+        public float Unknown_30h { get; set; } = 0.0f; //Always 0.0f?
+        public float Unknown_34h { get; set; } = 1.0f; //Always 1.0f?
+        public float Unknown_38h { get; set; } = 0.0f; //Always 0.0f?
+        public float Unknown_3Ch { get; set; } = 1.0f; //Always 1.0f?
+        public float Unknown_40h { get; set; } = 0.0f; //Always 0.0f?
+        public float Unknown_44h { get; set; } = 1.0f; //Always 1.0f?
+        public Rsc5Ptr<Rsc5BlockMap> Unknown_48h { get; set; }
+        public Rsc5Ptr<Rsc5BlockMap> Unknown_4Ch { get; set; }
+
+        public override void Read(Rsc5DataReader reader)
+        {
+            base.Read(reader);
+            Unknown_8h = reader.ReadUInt32();
+            ShaderGroup = reader.ReadPtr<Rsc5ShaderGroup>();
+            Unknown_10h = reader.ReadPtr<Rsc5BlockMap>();
+            ZoneTexture = reader.ReadPtr<Rsc5Texture>();
+            MaxDamageTexture = reader.ReadPtr<Rsc5Texture>();
+            ScratchTexture = reader.ReadPtr<Rsc5Texture>();
+            Unknown_20h = reader.ReadSingle();
+            Unknown_24h = reader.ReadSingle();
+            Unknown_28h = reader.ReadSingle();
+            Unknown_2Ch = reader.ReadSingle();
+            Unknown_30h = reader.ReadSingle();
+            Unknown_34h = reader.ReadSingle();
+            Unknown_38h = reader.ReadSingle();
+            Unknown_3Ch = reader.ReadSingle();
+            Unknown_40h = reader.ReadSingle();
+            Unknown_44h = reader.ReadSingle();
+            Unknown_48h = reader.ReadPtr<Rsc5BlockMap>();
+            Unknown_4Ch = reader.ReadPtr<Rsc5BlockMap>();
+        }
+
+        public override void Write(Rsc5DataWriter writer)
+        {
+            base.Write(writer);
+            writer.WriteUInt32(Unknown_8h);
+            writer.WritePtr(ShaderGroup);
+            writer.WritePtr(Unknown_10h);
+            writer.WritePtr(ZoneTexture);
+            writer.WritePtr(MaxDamageTexture);
+            writer.WritePtr(ScratchTexture);
+            writer.WriteSingle(Unknown_20h);
+            writer.WriteSingle(Unknown_24h);
+            writer.WriteSingle(Unknown_28h);
+            writer.WriteSingle(Unknown_2Ch);
+            writer.WriteSingle(Unknown_30h);
+            writer.WriteSingle(Unknown_34h);
+            writer.WriteSingle(Unknown_38h);
+            writer.WriteSingle(Unknown_3Ch);
+            writer.WriteSingle(Unknown_40h);
+            writer.WriteSingle(Unknown_44h);
+            writer.WritePtr(Unknown_48h);
+            writer.WritePtr(Unknown_4Ch);
+        }
+    }
+
+    public class Rsc5TextureDictionary : Rsc5BlockBaseMap
     {
         public override ulong BlockLength => 32;
         public override uint VFT { get; set; } = 0;
-        public Rsc5Ptr<Rsc5BlockMap> BlockMapPointer { get; set; }
         public uint ParentDictionary { get; set; } //Always 0 in file
         public uint UsageCount { get; set; } //Always 1 in file
-        public Rsc5Arr<JenkHash> HashTable { get; set; }
+        public Rsc5Arr<JenkHash> Hashes { get; set; }
         public Rsc5PtrArr<Rsc5Texture> Textures { get; set; }
 
         public Dictionary<JenkHash, Rsc5Texture> Dict = [];
@@ -20,19 +89,20 @@ namespace CodeX.Games.MCLA.RSC5
         public override void Read(Rsc5DataReader reader)
         {
             base.Read(reader);
-            BlockMapPointer = reader.ReadPtr<Rsc5BlockMap>();
             ParentDictionary = reader.ReadUInt32();
             UsageCount = reader.ReadUInt32();
-            HashTable = reader.ReadArr<JenkHash>();
+            Hashes = reader.ReadArr<JenkHash>();
             Textures = reader.ReadPtrArr<Rsc5Texture>();
 
             if (Textures.Items != null)
             {
-                var imax = Math.Min(HashTable.Items.Length, Textures.Items.Length);
+                var imax = Math.Min(Hashes.Items.Length, Textures.Items.Length);
                 for (int i = 0; i < Textures.Items.Length; i++)
                 {
                     var t = Textures.Items[i];
-                    var h = (i < imax) ? HashTable.Items[i] : 0;
+                    var h = (i < imax) ? Hashes.Items[i] : 0;
+                    
+                    t.Name ??= h.ToString();
                     Dict[h] = t;
                 }
             }
@@ -41,26 +111,23 @@ namespace CodeX.Games.MCLA.RSC5
         public override void Write(Rsc5DataWriter writer)
         {
             base.Write(writer);
-            writer.WritePtr(BlockMapPointer);
             writer.WriteUInt32(ParentDictionary);
             writer.WriteUInt32(UsageCount);
-            writer.WriteArr(HashTable);
+            writer.WriteArr(Hashes);
             writer.WritePtrArr(Textures);
         }
     }
 
-    public class Rsc5Bitmap : Rsc5FileBase
+    public class Rsc5Bitmap : Rsc5BlockBaseMap
     {
         public override ulong BlockLength => 16;
         public override uint VFT { get; set; } = 0;
-        public Rsc5Ptr<Rsc5BlockMap> BlockMapPointer { get; set; }
         public Rsc5Ptr<Rsc5Texture> Texture1 { get; set; }
         public Rsc5Ptr<Rsc5Texture> Texture2 { get; set; }
 
         public override void Read(Rsc5DataReader reader)
         {
             base.Read(reader);
-            BlockMapPointer = reader.ReadPtr<Rsc5BlockMap>();
             Texture1 = reader.ReadPtr<Rsc5Texture>();
             Texture2 = reader.ReadPtr<Rsc5Texture>();
         }
@@ -68,7 +135,6 @@ namespace CodeX.Games.MCLA.RSC5
         public override void Write(Rsc5DataWriter writer)
         {
             base.Write(writer);
-            writer.WritePtr(BlockMapPointer);
             writer.WritePtr(Texture1);
             writer.WritePtr(Texture2);
         }
@@ -76,7 +142,7 @@ namespace CodeX.Games.MCLA.RSC5
 
     public class Rsc5Texture : Rsc5TextureBase
     {
-        public override ulong BlockLength => 80;
+        public override ulong BlockLength => base.BlockLength + 28; //36 + 28 = 64
         public Rsc5TextureType TextureType { get; set; } //0 = normal, 1 = cube, 3 = volume
         public float ColorExpR { get; set; } = 1.0f; //m_ColorExprR
         public float ColorExpG { get; set; } = 1.0f; //m_ColorExprG
@@ -174,7 +240,7 @@ namespace CodeX.Games.MCLA.RSC5
 
     public class Rsc5TextureBase : Texture, IRsc5Block
     {
-        public virtual ulong BlockLength => 80;
+        public virtual ulong BlockLength => 36;
         public ulong FilePosition { get; set; }
         public bool IsPhysical => false;
         public uint VFT { get; set; }
