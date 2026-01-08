@@ -883,8 +883,8 @@ namespace CodeX.Games.MCLA.RPF3
         public int EntriesIndex { get; set; }
         public int EntriesCount { get; set; }
 
-        public List<GameArchiveDirectory> Directories { get; set; } = new List<GameArchiveDirectory>();
-        public List<GameArchiveFileInfo> Files { get; set; } = new List<GameArchiveFileInfo>();
+        public List<GameArchiveDirectory> Directories { get; set; } = [];
+        public List<GameArchiveFileInfo> Files { get; set; } = [];
 
         public override void Read(BinaryReader r)
         {

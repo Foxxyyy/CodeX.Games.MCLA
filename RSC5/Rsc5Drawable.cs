@@ -802,7 +802,7 @@ namespace CodeX.Games.MCLA.RSC5
 
             if (VertexBuffer.Item != null) //Hack to fix stupid "locked" things
             {
-                VertexLayout = VertexBuffer.Item?.Layout.Item?.VertexLayout;
+                VertexLayout = VertexBuffer.Item.Layout.Item.VertexLayout;
                 VertexData = Rpf3Crypto.Swap(VertexBuffer.Item.LockedData.Items ?? VertexBuffer.Item.VertexData.Items);
 
                 if (VertexCount == 0)

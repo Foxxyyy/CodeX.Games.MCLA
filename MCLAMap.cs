@@ -375,7 +375,7 @@ namespace CodeX.Games.MCLA
             this.Name = "city.occluder";
             this.IsLodMap = false;
 
-            var container = new EditablePart(0x44F766F9, [.. parts]); //"Occlusion"
+            var container = new EditablePart("Occlusion", 0x44F766F9, [.. parts]); //"Occlusion"
             this.AddHelper(new Entity(container, this.ToString()));
         }
 
