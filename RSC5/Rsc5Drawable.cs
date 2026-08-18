@@ -1941,15 +1941,26 @@ namespace CodeX.Games.MCLA.RSC5
         }
     }
 
-    [TC(typeof(EXP))] public class Rsc5ShaderGroup : Rsc5BlockBaseMap
+    [TC(typeof(EXP))] public class Rsc5ShaderGroup : Rsc5FileBase
     {
         public override ulong BlockLength => 16;
         public override uint VFT { get; set; } = 0x005AA6FC;
+        public Rsc5Ptr<Rsc5TextureDictionary> TextureDictionary { get; set; } //Sits where pgBase keeps its block map; only packages that embed their own textures fill it in
         public Rsc5PtrArr<Rsc5Shader> Shaders { get; set; }
 
         public override void Read(Rsc5DataReader reader)
         {
             base.Read(reader);
+
+            var position = reader.Position;
+            var pointer = reader.ReadUInt32();
+            if (IsTextureDictionary(reader, pointer))
+            {
+                reader.Position = position;
+                TextureDictionary = reader.ReadPtr<Rsc5TextureDictionary>();
+                reader.Position = position + 4;
+            }
+
             Shaders = reader.ReadPtrArr<Rsc5Shader>();
 
             if (Shaders.Items != null)
@@ -1966,6 +1977,30 @@ namespace CodeX.Games.MCLA.RSC5
                     }
                 }
             }
+        }
+
+        //The slot holds a plain block map in most files, so it's only followed when the target
+        //really looks like a grcTextureDictionary: null block map, and matching hash and texture
+        //arrays with the same non-zero count.
+        private static bool IsTextureDictionary(Rsc5DataReader reader, uint pointer)
+        {
+            if ((pointer & 0xF0000000) != Rpf3Crypto.VIRTUAL_BASE) return false;
+
+            var data = reader.Data;
+            var offset = (int)(pointer & 0x0FFFFFFF);
+            if (offset < 0 || offset + 32 > Math.Min(reader.VirtualSize, data.Length)) return false;
+
+            static uint U32(byte[] d, int o) => (uint)((d[o] << 24) | (d[o + 1] << 16) | (d[o + 2] << 8) | d[o + 3]);
+            static ushort U16(byte[] d, int o) => (ushort)((d[o] << 8) | d[o + 1]);
+
+            if (U32(data, offset + 4) != 0) return false; //block map
+            var hashes = U32(data, offset + 0x10);
+            var textures = U32(data, offset + 0x18);
+            if ((hashes & 0xF0000000) != Rpf3Crypto.VIRTUAL_BASE) return false;
+            if ((textures & 0xF0000000) != Rpf3Crypto.VIRTUAL_BASE) return false;
+
+            var count = U16(data, offset + 0x14);
+            return count != 0 && count == U16(data, offset + 0x1C);
         }
 
         public override void Write(Rsc5DataWriter writer)

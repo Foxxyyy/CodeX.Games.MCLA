@@ -63,7 +63,7 @@ namespace CodeX.Games.MCLA.RPF3
             InitFileType(".xshp", "Car Vinyl Shape", FileTypeIcon.Image, FileTypeAction.ViewTextures);
             InitFileType(".xsf", "Flash UI", FileTypeIcon.Image, FileTypeAction.ViewTextures);
             InitFileType(".xrsc", "Model Resource", FileTypeIcon.Piece, FileTypeAction.ViewModels);
-            InitFileType(".xtp", "Vehicle Top Part", FileTypeIcon.File);
+            InitFileType(".xtp", "Vehicle Part Textures", FileTypeIcon.Image, FileTypeAction.ViewTextures);
             InitFileType(".xtl", "Damage Textures", FileTypeIcon.Image, FileTypeAction.ViewTextures);
             InitFileType(".xspm", "Streaming Pack Map", FileTypeIcon.File);
             InitFileType(".xct", "City File/ Car Tuning", FileTypeIcon.File);
@@ -375,7 +375,7 @@ namespace CodeX.Games.MCLA.RPF3
                 xtd.Load(data);
                 return xtd;
             }
-            else if (file.NameLower.EndsWith(".xtl"))
+            else if (file.NameLower.EndsWith(".xtl") || file.NameLower.EndsWith(".xtp"))
             {
                 var xtl = new XtlFile(entry);
                 xtl.Load(data);
