@@ -67,6 +67,7 @@ namespace CodeX.Games.MCLA.RPF3
             InitFileType(".xtl", "Damage Textures", FileTypeIcon.Image, FileTypeAction.ViewTextures);
             InitFileType(".xspm", "Streaming Pack Map", FileTypeIcon.File);
             InitFileType(".xct", "City File/ Car Tuning", FileTypeIcon.File);
+            InitFileType(".xcc", "Car Config", FileTypeIcon.XmlFile, FileTypeAction.ViewXml);
             InitFileType(".dds", "DirectDraw Surface", FileTypeIcon.Image, FileTypeAction.ViewTextures);
             InitFileType(".xcs", "City Sector", FileTypeIcon.Piece, FileTypeAction.ViewModels);
             InitFileType(".xapk", "Animation Pack", FileTypeIcon.File);
@@ -309,6 +310,8 @@ namespace CodeX.Games.MCLA.RPF3
                 case ".meta":
                     newfilename = file.Name;
                     return TextUtil.GetUTF8Text(data);
+                case ".xcc":
+                    return ConvertToXml<XccFile>(file, data, out newfilename, "MCLACarConfig");
             }
 
             newfilename = file.Name + ".xml";
