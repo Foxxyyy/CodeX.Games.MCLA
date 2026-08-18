@@ -705,25 +705,53 @@ namespace CodeX.Games.MCLA.RPF3
             return size;
         }
 
-        public static byte[] UnswizzleXbox360Data(byte[] data, int width, int height, TextureFormat format)
+        public const int TextureTileBlocks = 32; //A Xenos tile is 32x32 blocks
+
+        public static bool GetBlockLayout(TextureFormat format, out int blockSizeRow, out int texelPitch)
         {
-            int texelPitch, blockSizeRow;
             switch (format)
             {
-                case TextureFormat.L8:
-                case TextureFormat.A8R8G8B8:
-                    return data;
                 case TextureFormat.BC1:
                     blockSizeRow = 4;
                     texelPitch = 8;
-                    break;
+                    return true;
                 case TextureFormat.BC2:
                 case TextureFormat.BC3:
                     blockSizeRow = 4;
                     texelPitch = 16;
-                    break;
+                    return true;
                 default:
-                    throw new NotImplementedException("Unsupported format for compression");
+                    blockSizeRow = 0;
+                    texelPitch = 0;
+                    return false;
+            }
+        }
+
+        //Blocks along one axis, padded out to whole tiles
+        public static int GetTiledBlocks(int texels, int blockSizeRow)
+        {
+            var blocks = (texels + blockSizeRow - 1) / blockSizeRow;
+            return (blocks + TextureTileBlocks - 1) / TextureTileBlocks * TextureTileBlocks;
+        }
+
+        //A tiled surface pads both its row pitch and its row count out to whole tiles, so a
+        //512x180 DXT5 occupies 128x64 blocks (0x20000 bytes), not 128x45. Sizing the read from
+        //the texel dimensions alone reads too little and then untiles past the end of it.
+        public static int GetTiledSurfaceSize(int width, int height, TextureFormat format)
+        {
+            if (!GetBlockLayout(format, out var blockSizeRow, out var texelPitch))
+            {
+                return width * height * (format == TextureFormat.A8R8G8B8 ? 4 : 1);
+            }
+            return GetTiledBlocks(width, blockSizeRow) * GetTiledBlocks(height, blockSizeRow) * texelPitch;
+        }
+
+        public static byte[] UnswizzleXbox360Data(byte[] data, int width, int height, TextureFormat format)
+        {
+            if (!GetBlockLayout(format, out var blockSizeRow, out var texelPitch))
+            {
+                if (format is TextureFormat.L8 or TextureFormat.A8R8G8B8) return data;
+                throw new NotImplementedException("Unsupported format for compression");
             }
 
             //Reverse every two bytes in the texture data
@@ -735,12 +763,10 @@ namespace CodeX.Games.MCLA.RPF3
                 }
             }
 
-            //Calculate virtual block dimensions
-            var virtualWidth = GetVirtualSize(width);
-            var virtualHeight = GetVirtualSize(height);
-            var virtualBlockWidth = virtualWidth / blockSizeRow;
-            var virtualBlockHeight = virtualHeight / blockSizeRow;
-            var unswizzledBuffer = new byte[data.Length];
+            //Tile aligned block dimensions - the layout the data is actually stored in
+            var virtualBlockWidth = GetTiledBlocks(width, blockSizeRow);
+            var virtualBlockHeight = GetTiledBlocks(height, blockSizeRow);
+            var unswizzledBuffer = new byte[virtualBlockWidth * virtualBlockHeight * texelPitch];
 
             //Perform unswizzling
             for (int j = 0; j < virtualBlockHeight; j++)
@@ -753,28 +779,30 @@ namespace CodeX.Games.MCLA.RPF3
 
                     var srcOffset = j * virtualBlockWidth * texelPitch + i * texelPitch; //Source offset from the swizzled texture data
                     var destOffset = y * virtualBlockWidth * texelPitch + x * texelPitch; //Destination offset in the unswizzled buffer
+
+                    //The last texture of a segment can be stored short of its padded size
+                    if (srcOffset + texelPitch > data.Length) continue;
+                    if (destOffset < 0 || destOffset + texelPitch > unswizzledBuffer.Length) continue;
                     Array.Copy(data, srcOffset, unswizzledBuffer, destOffset, texelPitch);
                 }
             }
 
-            //If the texture uses virtual dimensions, remove the extra padding
-            if (width < 128 || height < 128)
+            //Drop the tile padding to get back to the real dimensions
+            var actualBlockWidth = (width + blockSizeRow - 1) / blockSizeRow;
+            var actualBlockHeight = (height + blockSizeRow - 1) / blockSizeRow;
+            if (actualBlockWidth == virtualBlockWidth && actualBlockHeight == virtualBlockHeight)
             {
-                //Fit the texture to the actual dimensions (width, height)
-                var actualBlockWidth = width / blockSizeRow;
-                var actualBlockHeight = height / blockSizeRow;
-                var trimmedBuffer = new byte[actualBlockWidth * actualBlockHeight * texelPitch];
-
-                //Copy the relevant part of the unswizzled buffer into a trimmed buffer
-                for (int j = 0; j < actualBlockHeight; j++)
-                {
-                    var srcOffset = j * virtualBlockWidth * texelPitch;
-                    var destOffset = j * actualBlockWidth * texelPitch;
-                    Array.Copy(unswizzledBuffer, srcOffset, trimmedBuffer, destOffset, actualBlockWidth * texelPitch);
-                }
-                unswizzledBuffer = trimmedBuffer;
+                return unswizzledBuffer;
             }
-            return unswizzledBuffer;
+
+            var trimmedBuffer = new byte[actualBlockWidth * actualBlockHeight * texelPitch];
+            for (int j = 0; j < actualBlockHeight; j++)
+            {
+                var srcOffset = j * virtualBlockWidth * texelPitch;
+                var destOffset = j * actualBlockWidth * texelPitch;
+                Array.Copy(unswizzledBuffer, srcOffset, trimmedBuffer, destOffset, actualBlockWidth * texelPitch);
+            }
+            return trimmedBuffer;
         }
 
         //Translates a linear texture memory offset to a 2D tiled X address

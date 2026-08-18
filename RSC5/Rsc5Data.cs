@@ -57,6 +57,23 @@ namespace CodeX.Games.MCLA.RSC5
             return dst;
         }
 
+        //The padded size of the last texture in a segment can run past the end of the data.
+        //Reading it as far as the data goes and zero filling the rest keeps the caller's size
+        //assumptions intact instead of throwing.
+        public byte[] ReadBytesPadded(int count)
+        {
+            int dataOffset = GetDataOffset();
+            var dst = new byte[count];
+            var available = Math.Min(count, Data.Length - dataOffset);
+
+            if (available > 0)
+            {
+                Buffer.BlockCopy(Data, dataOffset, dst, 0, available);
+            }
+            Position += (ulong)count;
+            return dst;
+        }
+
         public new byte[] ReadBytesReversed(int count)
         {
             var numArray = ReadBytes(count);
