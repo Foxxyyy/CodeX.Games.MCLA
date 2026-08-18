@@ -94,6 +94,11 @@ namespace CodeX.Games.MCLA.RPF3
             InitFileType(".grid", "GRID File", FileTypeIcon.TextFile, FileTypeAction.ViewText);
             InitFileType(".aogrid", "AOGRID File", FileTypeIcon.TextFile, FileTypeAction.ViewText);
             InitFileType(".career", "CAREER File", FileTypeIcon.TextFile, FileTypeAction.ViewText);
+            InitFileType(".sharetex", "Shared Texture List", FileTypeIcon.XmlFile, FileTypeAction.ViewXml);
+            InitFileType(".mcpowerup", "Powerup Definition", FileTypeIcon.TextFile, FileTypeAction.ViewText);
+            InitFileType(".dcl", "Shader Declaration", FileTypeIcon.TextFile, FileTypeAction.ViewText);
+            InitFileType(".skel", "Skeleton Definition", FileTypeIcon.TextFile, FileTypeAction.ViewText);
+            InitFileType(".odr", "Drawable Definition", FileTypeIcon.TextFile, FileTypeAction.ViewText);
         }
 
         public override void InitCreateInfos()
