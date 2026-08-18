@@ -771,6 +771,7 @@ namespace CodeX.Games.MCLA.RSC5
         public uint Unknown_3Ch { get; set; }
 
         public Rsc5Shader ShaderRef { get; set; }
+        public bool RoadMaterial { get; set; } //Albedo is composited from the control and decal maps
         public ushort ShaderID { get; set; } //Read-written by parent model
         public BoundingBox4 AABB { get; set; } //Read-written by parent model
 
@@ -1092,6 +1093,11 @@ namespace CodeX.Games.MCLA.RSC5
             }
         }
 
+        //Road materials. The diffuse map here is NOT albedo: the game's own pixel shader samples
+        //it as "DiffuseSampler.yx" and feeds those two channels into the specular tint and a
+        //luminance term only, while the decal map is sampled ".xyzw" and carries the markings.
+        //Blue is never read so it sits at zero and the green holds the detail, which is what made
+        //every road and sidewalk render green.
         private void SetupDecalGrimeShader(Rsc5Shader s)
         {
             SetCoreShader<BlendShader>(ShaderBucket.Solid);
@@ -1111,25 +1117,28 @@ namespace CodeX.Games.MCLA.RSC5
                     {
                         switch (parm.Hash)
                         {
-                            case 0xF1FE2B71: //diffusesampler
+                            case 0xF1FE2B71: //diffusesampler, the control map
                             case 0x2b5170fd: //texturesampler
                             case 0x3e19076b: //detailmapsampler
                             case 0x605fcc60: //distancemapsampler
-                                Textures[0] = tex;
-                                break;
-                            case 0xA79AEEC0: //decalsampler
                                 Textures[1] = tex;
                                 break;
-                            case 0xE3381C99: //grimesampler
+                            case 0xA79AEEC0: //decalsampler, the markings overlay
                                 Textures[2] = tex;
                                 break;
-                            case 0xFE553678: //puddlesampler
+                            case 0xE3381C99: //grimesampler
                                 Textures[3] = tex;
                                 break;
                         }
                     }
                 }
             }
+
+            //Neither map is an albedo on its own, so the pair gets composited into one - see
+            //Rsc5RoadMaterial. That can only happen once the textures have been resolved by the
+            //file manager, so it just gets flagged here.
+            RoadMaterial = true;
+            Textures[0] = Rsc5RoadMaterial.GetAlbedo(Textures[1], Textures[2]);
         }
 
         private void SetupGrassTerrainShader(Rsc5Shader s)

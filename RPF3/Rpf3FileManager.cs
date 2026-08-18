@@ -521,6 +521,13 @@ namespace CodeX.Games.MCLA.RPF3
                             }
                         }
                     }
+
+                    //A road material only gets its albedo once the control and decal maps have
+                    //resolved, which happens here rather than back when the shader was set up
+                    if (geom.RoadMaterial && slots.Length > 2)
+                    {
+                        slots[0] = Rsc5RoadMaterial.GetAlbedo(slots[1], slots[2]);
+                    }
                 }
             }
         }
