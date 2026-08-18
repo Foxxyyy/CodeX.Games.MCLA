@@ -925,6 +925,11 @@ namespace CodeX.Games.MCLA.RSC5
                         break;
                 }
 
+                //The alpha channel of an MCLA diffuse map is a specular/gloss mask, not opacity -
+                //only shaders that declare a non-solid draw bucket really blend. Handing the mask
+                //to the core shader punches holes through skin, beards and car bodies.
+                var opaque = shader.DrawBucket == 0;
+
                 switch (hash)
                 {
                     case 0x61C0C8F9: //CityNormalMap
@@ -932,12 +937,10 @@ namespace CodeX.Games.MCLA.RSC5
                         break;
                     case 0xA6DD4FC1: //CityWindowLOD
                     case 0x816FF892: //CityWindowUpper
-                        ShaderInputs.SetFloat(0x4D52C5FF, 0.0f); //AlphaScale
-                        break;
-                    default:
-                        ShaderInputs.SetFloat(0x4D52C5FF, 1.0f); //AlphaScale
+                        opaque = true;
                         break;
                 }
+                ShaderInputs.SetFloat(0x4D52C5FF, opaque ? 0.0f : 1.0f); //AlphaScale
 
                 var bucket = shader.DrawBucket;
                 switch (bucket)
