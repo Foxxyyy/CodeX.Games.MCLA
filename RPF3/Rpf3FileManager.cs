@@ -61,7 +61,7 @@ namespace CodeX.Games.MCLA.RPF3
             InitFileType(".xpfl", "Particle Effects Library", FileTypeIcon.Animation);
             InitFileType(".xsd", "XSD File", FileTypeIcon.Library, FileTypeAction.ViewXml);
             InitFileType(".xshp", "Car Vinyl Shape", FileTypeIcon.Image, FileTypeAction.ViewTextures);
-            InitFileType(".xsf", "Flash UI", FileTypeIcon.Image);
+            InitFileType(".xsf", "Flash UI", FileTypeIcon.Image, FileTypeAction.ViewTextures);
             InitFileType(".xrsc", "Model Resource", FileTypeIcon.Piece, FileTypeAction.ViewModels);
             InitFileType(".xtp", "Vehicle Top Part", FileTypeIcon.File);
             InitFileType(".xtl", "Damage Textures", FileTypeIcon.Image, FileTypeAction.ViewTextures);
@@ -363,7 +363,13 @@ namespace CodeX.Games.MCLA.RPF3
             if (file is not Rpf3FileEntry entry)
                 return null;
 
-            if (file.NameLower.EndsWith(".xtd"))
+            if (file.NameLower.EndsWith(".xsf"))
+            {
+                var xsf = new XsfFile(entry);
+                xsf.Load(data);
+                return xsf;
+            }
+            else if (file.NameLower.EndsWith(".xtd"))
             {
                 var xtd = new XtdFile(entry);
                 xtd.Load(data);
