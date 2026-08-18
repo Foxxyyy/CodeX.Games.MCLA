@@ -67,6 +67,7 @@ namespace CodeX.Games.MCLA.RPF3
             InitFileType(".xtl", "Damage Textures", FileTypeIcon.Image, FileTypeAction.ViewTextures);
             InitFileType(".xspm", "Streaming Pack Map", FileTypeIcon.File);
             InitFileType(".xct", "City File/ Car Tuning", FileTypeIcon.File);
+            InitFileType(".dds", "DirectDraw Surface", FileTypeIcon.Image, FileTypeAction.ViewTextures);
             InitFileType(".xcs", "City Sector", FileTypeIcon.Piece, FileTypeAction.ViewModels);
             InitFileType(".xapk", "Animation Pack", FileTypeIcon.File);
             InitFileType(".xov", "Overlay", FileTypeIcon.File);
@@ -363,7 +364,13 @@ namespace CodeX.Games.MCLA.RPF3
             if (file is not Rpf3FileEntry entry)
                 return null;
 
-            if (file.NameLower.EndsWith(".xsf"))
+            if (file.NameLower.EndsWith(".dds"))
+            {
+                var dds = new DdsFile(entry);
+                dds.Load(data);
+                return dds;
+            }
+            else if (file.NameLower.EndsWith(".xsf"))
             {
                 var xsf = new XsfFile(entry);
                 xsf.Load(data);
