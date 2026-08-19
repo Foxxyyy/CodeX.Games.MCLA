@@ -151,6 +151,8 @@ namespace CodeX.Games.MCLA.RSC5
         public float ColorOfsG { get; set; } = 0.0f; //m_ColorOfsG
         public float ColorOfsB { get; set; } = 0.0f; //m_ColorOfsB
         public int Size { get; set; }
+        public uint D3DValue { get; set; } //grcTexture D3D header dword: format in 0..5, endianness in 6..7, base address above
+        public uint[] D3DHeader { get; set; }
 
         public override void Read(Rsc5DataReader reader)
         {
@@ -172,13 +174,16 @@ namespace CodeX.Games.MCLA.RSC5
 
             reader.Position = D3DBaseTexture.Item.FilePosition + 0x20;
             var d3dValue = reader.ReadInt32();
-            var virtualW = Rpf3Crypto.GetVirtualSize(Width);
-            var virtualH = Rpf3Crypto.GetVirtualSize(Height);
             reader.Position = (ulong)Rpf3Crypto.GetBaseAdressFromDirect3D(d3dValue, reader);
 
+            D3DValue = (uint)d3dValue;
+            var hp = reader.Position;
+            reader.Position = D3DBaseTexture.Item.FilePosition;
+            D3DHeader = reader.ReadUInt32Arr(16);
+            reader.Position = hp;
             Format = ConvertToEngineFormat((Rsc5TextureFormat)(d3dValue & byte.MaxValue));
-            Size = CalcDataSize(virtualW, virtualH);
-            Data = reader.ReadBytes(Size);
+            Size = Rpf3Crypto.GetTiledSurfaceSize(Width, Height, Format);
+            Data = reader.ReadBytesPadded(Size);
             Sampler = TextureSampler.Create(TextureSamplerFilter.Anisotropic, TextureAddressMode.Wrap);
             Data = Rpf3Crypto.UnswizzleXbox360Data(Data, Width, Height, Format);
             Size = Data.Length; //In case of virtual dimensions, get the actual texture size

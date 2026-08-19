@@ -4,7 +4,7 @@ using CodeX.Games.MCLA.RSC5;
 
 namespace CodeX.Games.MCLA.Files
 {
-    class XtdFile(Rpf3FileEntry file) : TexturePack(file)
+    public class XtdFile(Rpf3FileEntry file) : TexturePack(file)
     {
         public Rsc5TextureDictionary TextureDictionary = null;
 

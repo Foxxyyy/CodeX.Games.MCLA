@@ -771,6 +771,7 @@ namespace CodeX.Games.MCLA.RSC5
         public uint Unknown_3Ch { get; set; }
 
         public Rsc5Shader ShaderRef { get; set; }
+        public bool RoadMaterial { get; set; } //Albedo is composited from the control and decal maps
         public ushort ShaderID { get; set; } //Read-written by parent model
         public BoundingBox4 AABB { get; set; } //Read-written by parent model
 
@@ -925,6 +926,11 @@ namespace CodeX.Games.MCLA.RSC5
                         break;
                 }
 
+                //The alpha channel of an MCLA diffuse map is a specular/gloss mask, not opacity -
+                //only shaders that declare a non-solid draw bucket really blend. Handing the mask
+                //to the core shader punches holes through skin, beards and car bodies.
+                var opaque = shader.DrawBucket == 0;
+
                 switch (hash)
                 {
                     case 0x61C0C8F9: //CityNormalMap
@@ -932,12 +938,10 @@ namespace CodeX.Games.MCLA.RSC5
                         break;
                     case 0xA6DD4FC1: //CityWindowLOD
                     case 0x816FF892: //CityWindowUpper
-                        ShaderInputs.SetFloat(0x4D52C5FF, 0.0f); //AlphaScale
-                        break;
-                    default:
-                        ShaderInputs.SetFloat(0x4D52C5FF, 1.0f); //AlphaScale
+                        opaque = true;
                         break;
                 }
+                ShaderInputs.SetFloat(0x4D52C5FF, opaque ? 0.0f : 1.0f); //AlphaScale
 
                 var bucket = shader.DrawBucket;
                 switch (bucket)
@@ -1089,6 +1093,11 @@ namespace CodeX.Games.MCLA.RSC5
             }
         }
 
+        //Road materials. The diffuse map here is NOT albedo: the game's own pixel shader samples
+        //it as "DiffuseSampler.yx" and feeds those two channels into the specular tint and a
+        //luminance term only, while the decal map is sampled ".xyzw" and carries the markings.
+        //Blue is never read so it sits at zero and the green holds the detail, which is what made
+        //every road and sidewalk render green.
         private void SetupDecalGrimeShader(Rsc5Shader s)
         {
             SetCoreShader<BlendShader>(ShaderBucket.Solid);
@@ -1108,25 +1117,28 @@ namespace CodeX.Games.MCLA.RSC5
                     {
                         switch (parm.Hash)
                         {
-                            case 0xF1FE2B71: //diffusesampler
+                            case 0xF1FE2B71: //diffusesampler, the control map
                             case 0x2b5170fd: //texturesampler
                             case 0x3e19076b: //detailmapsampler
                             case 0x605fcc60: //distancemapsampler
-                                Textures[0] = tex;
-                                break;
-                            case 0xA79AEEC0: //decalsampler
                                 Textures[1] = tex;
                                 break;
-                            case 0xE3381C99: //grimesampler
+                            case 0xA79AEEC0: //decalsampler, the markings overlay
                                 Textures[2] = tex;
                                 break;
-                            case 0xFE553678: //puddlesampler
+                            case 0xE3381C99: //grimesampler
                                 Textures[3] = tex;
                                 break;
                         }
                     }
                 }
             }
+
+            //Neither map is an albedo on its own, so the pair gets composited into one - see
+            //Rsc5RoadMaterial. That can only happen once the textures have been resolved by the
+            //file manager, so it just gets flagged here.
+            RoadMaterial = true;
+            Textures[0] = Rsc5RoadMaterial.GetAlbedo(Textures[1], Textures[2]);
         }
 
         private void SetupGrassTerrainShader(Rsc5Shader s)
@@ -1941,15 +1953,26 @@ namespace CodeX.Games.MCLA.RSC5
         }
     }
 
-    [TC(typeof(EXP))] public class Rsc5ShaderGroup : Rsc5BlockBaseMap
+    [TC(typeof(EXP))] public class Rsc5ShaderGroup : Rsc5FileBase
     {
         public override ulong BlockLength => 16;
         public override uint VFT { get; set; } = 0x005AA6FC;
+        public Rsc5Ptr<Rsc5TextureDictionary> TextureDictionary { get; set; } //Sits where pgBase keeps its block map; only packages that embed their own textures fill it in
         public Rsc5PtrArr<Rsc5Shader> Shaders { get; set; }
 
         public override void Read(Rsc5DataReader reader)
         {
             base.Read(reader);
+
+            var position = reader.Position;
+            var pointer = reader.ReadUInt32();
+            if (IsTextureDictionary(reader, pointer))
+            {
+                reader.Position = position;
+                TextureDictionary = reader.ReadPtr<Rsc5TextureDictionary>();
+                reader.Position = position + 4;
+            }
+
             Shaders = reader.ReadPtrArr<Rsc5Shader>();
 
             if (Shaders.Items != null)
@@ -1966,6 +1989,30 @@ namespace CodeX.Games.MCLA.RSC5
                     }
                 }
             }
+        }
+
+        //The slot holds a plain block map in most files, so it's only followed when the target
+        //really looks like a grcTextureDictionary: null block map, and matching hash and texture
+        //arrays with the same non-zero count.
+        private static bool IsTextureDictionary(Rsc5DataReader reader, uint pointer)
+        {
+            if ((pointer & 0xF0000000) != Rpf3Crypto.VIRTUAL_BASE) return false;
+
+            var data = reader.Data;
+            var offset = (int)(pointer & 0x0FFFFFFF);
+            if (offset < 0 || offset + 32 > Math.Min(reader.VirtualSize, data.Length)) return false;
+
+            static uint U32(byte[] d, int o) => (uint)((d[o] << 24) | (d[o + 1] << 16) | (d[o + 2] << 8) | d[o + 3]);
+            static ushort U16(byte[] d, int o) => (ushort)((d[o] << 8) | d[o + 1]);
+
+            if (U32(data, offset + 4) != 0) return false; //block map
+            var hashes = U32(data, offset + 0x10);
+            var textures = U32(data, offset + 0x18);
+            if ((hashes & 0xF0000000) != Rpf3Crypto.VIRTUAL_BASE) return false;
+            if ((textures & 0xF0000000) != Rpf3Crypto.VIRTUAL_BASE) return false;
+
+            var count = U16(data, offset + 0x14);
+            return count != 0 && count == U16(data, offset + 0x1C);
         }
 
         public override void Write(Rsc5DataWriter writer)

@@ -61,12 +61,14 @@ namespace CodeX.Games.MCLA.RPF3
             InitFileType(".xpfl", "Particle Effects Library", FileTypeIcon.Animation);
             InitFileType(".xsd", "XSD File", FileTypeIcon.Library, FileTypeAction.ViewXml);
             InitFileType(".xshp", "Car Vinyl Shape", FileTypeIcon.Image, FileTypeAction.ViewTextures);
-            InitFileType(".xsf", "Flash UI", FileTypeIcon.Image);
+            InitFileType(".xsf", "Flash UI", FileTypeIcon.Image, FileTypeAction.ViewTextures);
             InitFileType(".xrsc", "Model Resource", FileTypeIcon.Piece, FileTypeAction.ViewModels);
-            InitFileType(".xtp", "Vehicle Top Part", FileTypeIcon.File);
+            InitFileType(".xtp", "Vehicle Part Textures", FileTypeIcon.Image, FileTypeAction.ViewTextures);
             InitFileType(".xtl", "Damage Textures", FileTypeIcon.Image, FileTypeAction.ViewTextures);
             InitFileType(".xspm", "Streaming Pack Map", FileTypeIcon.File);
             InitFileType(".xct", "City File/ Car Tuning", FileTypeIcon.File);
+            InitFileType(".xcc", "Car Config", FileTypeIcon.XmlFile, FileTypeAction.ViewXml);
+            InitFileType(".dds", "DirectDraw Surface", FileTypeIcon.Image, FileTypeAction.ViewTextures);
             InitFileType(".xcs", "City Sector", FileTypeIcon.Piece, FileTypeAction.ViewModels);
             InitFileType(".xapk", "Animation Pack", FileTypeIcon.File);
             InitFileType(".xov", "Overlay", FileTypeIcon.File);
@@ -92,6 +94,11 @@ namespace CodeX.Games.MCLA.RPF3
             InitFileType(".grid", "GRID File", FileTypeIcon.TextFile, FileTypeAction.ViewText);
             InitFileType(".aogrid", "AOGRID File", FileTypeIcon.TextFile, FileTypeAction.ViewText);
             InitFileType(".career", "CAREER File", FileTypeIcon.TextFile, FileTypeAction.ViewText);
+            InitFileType(".sharetex", "Shared Texture List", FileTypeIcon.XmlFile, FileTypeAction.ViewXml);
+            InitFileType(".mcpowerup", "Powerup Definition", FileTypeIcon.TextFile, FileTypeAction.ViewText);
+            InitFileType(".dcl", "Shader Declaration", FileTypeIcon.TextFile, FileTypeAction.ViewText);
+            InitFileType(".skel", "Skeleton Definition", FileTypeIcon.TextFile, FileTypeAction.ViewText);
+            InitFileType(".odr", "Drawable Definition", FileTypeIcon.TextFile, FileTypeAction.ViewText);
         }
 
         public override void InitCreateInfos()
@@ -308,6 +315,8 @@ namespace CodeX.Games.MCLA.RPF3
                 case ".meta":
                     newfilename = file.Name;
                     return TextUtil.GetUTF8Text(data);
+                case ".xcc":
+                    return ConvertToXml<XccFile>(file, data, out newfilename, "MCLACarConfig");
             }
 
             newfilename = file.Name + ".xml";
@@ -363,13 +372,25 @@ namespace CodeX.Games.MCLA.RPF3
             if (file is not Rpf3FileEntry entry)
                 return null;
 
-            if (file.NameLower.EndsWith(".xtd"))
+            if (file.NameLower.EndsWith(".dds"))
+            {
+                var dds = new DdsFile(entry);
+                dds.Load(data);
+                return dds;
+            }
+            else if (file.NameLower.EndsWith(".xsf"))
+            {
+                var xsf = new XsfFile(entry);
+                xsf.Load(data);
+                return xsf;
+            }
+            else if (file.NameLower.EndsWith(".xtd"))
             {
                 var xtd = new XtdFile(entry);
                 xtd.Load(data);
                 return xtd;
             }
-            else if (file.NameLower.EndsWith(".xtl"))
+            else if (file.NameLower.EndsWith(".xtl") || file.NameLower.EndsWith(".xtp"))
             {
                 var xtl = new XtlFile(entry);
                 xtl.Load(data);
@@ -499,6 +520,13 @@ namespace CodeX.Games.MCLA.RPF3
                                 break;
                             }
                         }
+                    }
+
+                    //A road material only gets its albedo once the control and decal maps have
+                    //resolved, which happens here rather than back when the shader was set up
+                    if (geom.RoadMaterial && slots.Length > 2)
+                    {
+                        slots[0] = Rsc5RoadMaterial.GetAlbedo(slots[1], slots[2]);
                     }
                 }
             }
