@@ -56,7 +56,7 @@ namespace CodeX.Games.MCLA.RPF3
             InitFileType(".rel", "Audio Data (REL)", FileTypeIcon.AudioPlayback, FileTypeAction.ViewAudio);
             InitFileType(".nametable", "Name Table", FileTypeIcon.TextFile, FileTypeAction.ViewText);
             InitFileType(".xpdb", "Pose Matcher Database", FileTypeIcon.SystemFile, FileTypeAction.ViewXml);
-            InitFileType(".sco", "Script", FileTypeIcon.Script, FileTypeAction.ViewHex);
+            InitFileType(".sco", "Script", FileTypeIcon.Script, FileTypeAction.ViewText);
             InitFileType(".xat", "Action Tree", FileTypeIcon.Animation);
             InitFileType(".xpfl", "Particle Effects Library", FileTypeIcon.Animation);
             InitFileType(".xsd", "XSD File", FileTypeIcon.Library, FileTypeAction.ViewXml);
@@ -356,6 +356,15 @@ namespace CodeX.Games.MCLA.RPF3
                 return string.Empty;
             }
             newfilename = file.Name;
+
+            if (file.Name.EndsWith(".sco", StringComparison.OrdinalIgnoreCase))
+            {
+                var sco = new ScoFile(file);
+                sco.Load(data);
+                newfilename = file.Name + ".txt";
+                return sco.ToText();
+            }
+
             return TextUtil.GetUTF8Text(data);
         }
 
