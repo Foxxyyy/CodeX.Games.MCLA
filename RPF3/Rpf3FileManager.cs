@@ -70,7 +70,7 @@ namespace CodeX.Games.MCLA.RPF3
             InitFileType(".xcc", "Car Config", FileTypeIcon.XmlFile, FileTypeAction.ViewXml);
             InitFileType(".dds", "DirectDraw Surface", FileTypeIcon.Image, FileTypeAction.ViewTextures);
             InitFileType(".xcs", "City Sector", FileTypeIcon.Piece, FileTypeAction.ViewModels);
-            InitFileType(".xapk", "Animation Pack", FileTypeIcon.File);
+            InitFileType(".xapk", "Animation Pack", FileTypeIcon.Animation, FileTypeAction.ViewModels);
             InitFileType(".xov", "Overlay", FileTypeIcon.File);
             InitFileType(".xwt", "Wheel Texture", FileTypeIcon.Image, FileTypeAction.ViewTextures);
             InitFileType(".xlm", "Light Manager", FileTypeIcon.File);
@@ -357,6 +357,17 @@ namespace CodeX.Games.MCLA.RPF3
             }
             newfilename = file.Name;
 
+            //Animation packs are resource type 1 (Generic), which shares its type with several
+            //other formats, so an entry whose name never got resolved arrives without an
+            //extension. mcAnimPack always starts with the same tag, so check the bytes too.
+            if (file.Name.EndsWith(".xapk", StringComparison.OrdinalIgnoreCase) || LooksLikeAnimPack(data))
+            {
+                var pack = new XapkFile(file);
+                pack.Load(data);
+                newfilename = file.Name + ".txt";
+                return pack.ToText();
+            }
+
             if (file.Name.EndsWith(".sco", StringComparison.OrdinalIgnoreCase))
             {
                 var sco = new ScoFile(file);
@@ -366,6 +377,38 @@ namespace CodeX.Games.MCLA.RPF3
             }
 
             return TextUtil.GetUTF8Text(data);
+        }
+
+        //mcAnimPack always starts with this tag.
+        private static bool LooksLikeAnimPack(byte[] data)
+        {
+            return data != null && data.Length > 4
+                && data[0] == 0x9C && data[1] == 0x55 && data[2] == 0x44 && data[3] == 0x00;
+        }
+
+        //LoadPiecePack runs before the preview window exists, so wait for the PreviewForm holding
+        //this pack to appear and put the animation window on top of it.
+        private void ShowAnimationWindowFor(XapkFile pack)
+        {
+            var timer = new System.Windows.Forms.Timer { Interval = 150 };
+            var tries = 0;
+            timer.Tick += (s, e) =>
+            {
+                if (++tries > 40) { timer.Stop(); timer.Dispose(); return; }
+                foreach (System.Windows.Forms.Form form in System.Windows.Forms.Application.OpenForms)
+                {
+                    if (form is not CodeX.Forms.Explorer.PreviewForm preview) continue;
+                    if (!ReferenceEquals(preview.PiecePack, pack)) continue;
+                    timer.Stop();
+                    timer.Dispose();
+                    var win = new MclaAnimationForm(preview, this);
+                    win.Show(preview);
+                    win.Location = new System.Drawing.Point(preview.Right - win.Width - 20, preview.Top + 40);
+                    win.LoadPack(pack);
+                    return;
+                }
+            };
+            timer.Start();
         }
 
         public override byte[] ConvertFromText(string text, string filename)
@@ -427,6 +470,19 @@ namespace CodeX.Games.MCLA.RPF3
                 return null;
             if (file is not Rpf3FileEntry entry)
                 return null;
+
+            //An animation pack has no geometry: it goes to the preview as an empty piece pack, and
+            //the animation window opens over it once the preview exists.
+            if (entry.NameLower.EndsWith(".xapk") || LooksLikeAnimPack(data))
+            {
+                var xapk = new XapkFile(entry);
+                xapk.Load(data);
+                if (xapk.LoadException == null)
+                {
+                    ShowAnimationWindowFor(xapk);
+                    return xapk;
+                }
+            }
 
             XapbFile.Textures?.Clear();
             if (entry.NameLower.EndsWith(".xapb"))
