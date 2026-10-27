@@ -1053,15 +1053,21 @@ namespace CodeX.Games.MCLA.RPF3
             var rscType = br.ReadInt32();
             var flagInfo = br.ReadInt32();
 
-            if (rscVersion != 88298322) //RSC5
+            if (rscVersion != 88298322 && rscVersion != 0x52534305) //RSC5
             {
                 return null;
+            }
+
+            int dLen = GetPhysicalSize() + GetVirtualSize();
+            if ((flagInfo & 0x40000000) == 0)
+            {
+                // Uncompressed RSC5 resource (payload starts at offset 12)
+                return br.ReadBytes(dLen);
             }
 
             var unk = br.ReadUInt32();
             var len = br.ReadInt32();
             byte[] data = br.ReadBytes(len);
-            int dLen = GetPhysicalSize() + GetVirtualSize();
             return DecompressLZX(data, dLen);
         }
 

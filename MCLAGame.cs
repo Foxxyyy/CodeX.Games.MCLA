@@ -1,10 +1,32 @@
-﻿using CodeX.Core.Engine;
+using System;
+using System.IO;
+using System.Reflection;
+using CodeX.Core.Engine;
 using CodeX.Games.MCLA.RPF3;
 
 namespace CodeX.Games.MCLA
 {
     public class MCLAGame : Game
     {
+        static MCLAGame()
+        {
+            AppDomain.CurrentDomain.AssemblyResolve += (sender, args) =>
+            {
+                try
+                {
+                    var name = new AssemblyName(args.Name).Name;
+                    var baseDir = AppDomain.CurrentDomain.BaseDirectory;
+                    var file = Path.Combine(baseDir, name + ".dll");
+                    if (File.Exists(file))
+                    {
+                        return Assembly.LoadFrom(file);
+                    }
+                }
+                catch { }
+                return null;
+            };
+        }
+
         public override string Name => "Midnight Club: Los Angeles";
         public override string ShortName => "MCLA";
         public override string GameFolder { get => GameFolderSetting.GetString(); set => GameFolderSetting.Set(value); }

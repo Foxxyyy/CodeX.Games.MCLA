@@ -45,7 +45,7 @@ namespace CodeX.Games.MCLA.RPF3
             InitFileType(".xdr", "Drawable", FileTypeIcon.Piece, FileTypeAction.ViewModels);
             InitFileType(".xft", "Fragment", FileTypeIcon.Piece, FileTypeAction.ViewModels);
             InitFileType(".cut", "Cutscene", FileTypeIcon.Level, FileTypeAction.ViewXml);
-            InitFileType(".xtd", "Texture Dictionary", FileTypeIcon.Image, FileTypeAction.ViewTextures);
+            InitFileType(".xtd", "Texture Dictionary", FileTypeIcon.Image, FileTypeAction.ViewTextures, true, true, true);
             InitFileType(".xcd", "Clip Dictionary", FileTypeIcon.Animation, FileTypeAction.ViewXml);
             InitFileType(".xpt", "Particle Effect", FileTypeIcon.Animation, FileTypeAction.ViewModels);
             InitFileType(".xbn", "Static Collisions", FileTypeIcon.Collisions, FileTypeAction.ViewModels);
@@ -153,26 +153,33 @@ namespace CodeX.Games.MCLA.RPF3
 
         public override void InitArchivesComplete()
         {
-            foreach (var archive in AllArchives)
+            try
             {
-                if (archive.AllEntries != null)
+                foreach (var archive in AllArchives)
                 {
-                    ArchiveDict[archive.Path] = archive;
-                    foreach (var entry in archive.AllEntries)
+                    if (archive.AllEntries != null)
                     {
-                        if (entry is Rpf3FileEntry fe)
+                        ArchiveDict[archive.Path] = archive;
+                        foreach (var entry in archive.AllEntries)
                         {
-                            EntryDict[fe.Path] = fe;
-                            JenkIndex.Ensure(fe.ShortNameLower, "MCLA");
+                            if (entry is Rpf3FileEntry fe)
+                            {
+                                EntryDict[fe.Path] = fe;
+                                JenkIndex.Ensure(fe.ShortNameLower, "MCLA");
+                            }
                         }
                     }
                 }
-            }
 
-            InitGameFiles();
-            if (StartupCacheDirty)
+                InitGameFiles();
+                if (StartupCacheDirty)
+                {
+                    SaveStartupCache();
+                }
+            }
+            catch (Exception ex)
             {
-                SaveStartupCache();
+                Core.Engine.Console.Write("MCLA", "InitArchivesComplete error: " + ex);
             }
         }
 
@@ -280,7 +287,58 @@ namespace CodeX.Games.MCLA.RPF3
 
         public override GameArchiveFileInfo CreateFileEntry(string name, string path, ref byte[] data)
         {
-            return null;
+            if (data == null || data.Length < 4) return null;
+
+            uint magic = BufferUtil.ReadUint(data, 0);
+            if (magic == 0x05435352u || magic == 0x52534305u)
+            {
+                bool isBigEndian = (magic == 0x52534305u);
+                uint type = isBigEndian ? Rpf3Crypto.Swap(BufferUtil.ReadUint(data, 4)) : BufferUtil.ReadUint(data, 4);
+                uint flag = isBigEndian ? Rpf3Crypto.Swap(BufferUtil.ReadUint(data, 8)) : BufferUtil.ReadUint(data, 8);
+
+                var rfe = new Rpf3ResourceFileEntry
+                {
+                    Name = name,
+                    Path = path,
+                    Flag = flag,
+                    IsResource = true,
+                    ResourceType = (Rpf3ResourceType)type
+                };
+
+                if ((flag & 0x40000000) != 0)
+                {
+                    int dLen = rfe.GetVirtualSize() + rfe.GetPhysicalSize();
+                    if (data.Length >= 20)
+                    {
+                        int streamLen = (int)Rpf3Crypto.Swap(BufferUtil.ReadUint(data, 16));
+                        var compressed = new byte[streamLen];
+                        System.Buffer.BlockCopy(data, 20, compressed, 0, Math.Min(streamLen, data.Length - 20));
+                        data = Rpf3Crypto.DecompressLZX(compressed, dLen);
+                    }
+                }
+                else
+                {
+                    int totalSize = rfe.GetVirtualSize() + rfe.GetPhysicalSize();
+                    int headerSize = (data.Length >= 16 && (data.Length - 16) == totalSize) ? 16 : 12;
+                    if (data.Length < headerSize) return null;
+                    var payload = new byte[data.Length - headerSize];
+                    System.Buffer.BlockCopy(data, headerSize, payload, 0, payload.Length);
+                    data = payload;
+                }
+                return rfe;
+            }
+            else
+            {
+                var fe = new Rpf3ResourceFileEntry
+                {
+                    Name = name,
+                    Path = path,
+                    Size = (uint)data.Length,
+                    IsResource = false,
+                    IsCompressed = false
+                };
+                return fe;
+            }
         }
 
         public override void RenameArchive(GameArchive file, string newname)
@@ -317,6 +375,8 @@ namespace CodeX.Games.MCLA.RPF3
                     return TextUtil.GetUTF8Text(data);
                 case ".xcc":
                     return ConvertToXml<XccFile>(file, data, out newfilename, "MCLACarConfig");
+                case ".xtd":
+                    return ConvertToXml<XtdFile>(file, data, out newfilename, "MCLATextureDictionary", GetXmlFileFolder(file, folder));
             }
 
             newfilename = file.Name + ".xml";
@@ -332,20 +392,39 @@ namespace CodeX.Games.MCLA.RPF3
 
         public override byte[] ConvertFromXml(string xml, string filename, string folder = "")
         {
+            var fnlower = filename?.ToLowerInvariant() ?? "";
+            if (fnlower.EndsWith(".xtd.xml") || fnlower.EndsWith(".xtd"))
+            {
+                if (!string.IsNullOrEmpty(folder))
+                {
+                    string baseName = Path.GetFileNameWithoutExtension(filename);
+                    if (baseName.EndsWith(".xtd", StringComparison.OrdinalIgnoreCase))
+                    {
+                        baseName = Path.GetFileNameWithoutExtension(baseName);
+                    }
+                    string candidateSubfolder = Path.Combine(folder, baseName);
+                    if (Directory.Exists(candidateSubfolder))
+                    {
+                        folder = candidateSubfolder;
+                    }
+                }
+                return ConvertFromXml<XtdFile>(xml, folder);
+            }
             return null;
         }
 
         public override string GetXmlFormatName(string filename, out int trimlength)
         {
             trimlength = 4;
-            var str1 = filename.Substring(0, filename.Length - trimlength);
-            var idx = str1.LastIndexOf('.');
-            if (idx < 0)
+            if (filename.EndsWith(".xtd.xml", StringComparison.OrdinalIgnoreCase))
             {
-                return "RSC XML";
+                return "XTD XML";
             }
-            trimlength += str1.Length - idx;
-            return str1[(idx + 1)..].ToUpperInvariant() + " XML";
+            if (filename.EndsWith(".xcs.xml", StringComparison.OrdinalIgnoreCase))
+            {
+                return "XCS XML";
+            }
+            return "RSC XML";
         }
 
         public override string ConvertToText(GameArchiveFileInfo file, byte[] data, out string newfilename)
@@ -421,30 +500,40 @@ namespace CodeX.Games.MCLA.RPF3
             data = EnsureFileData(file, data);
             if (data == null)
                 return null;
-            if (file is not Rpf3FileEntry entry)
-                return null;
 
-            if (file.NameLower.EndsWith(".dds"))
+            var ext = file?.NameLower ?? "";
+            var entry = file as Rpf3FileEntry;
+
+            if (ext.EndsWith(".dds"))
             {
                 var dds = new DdsFile(entry);
+                dds.FileInfo = file;
                 dds.Load(data);
                 return dds;
             }
-            else if (file.NameLower.EndsWith(".xsf"))
+            else if (ext.EndsWith(".xsf"))
             {
                 var xsf = new XsfFile(entry);
+                xsf.FileInfo = file;
                 xsf.Load(data);
                 return xsf;
             }
-            else if (file.NameLower.EndsWith(".xtd"))
+            else if (ext.EndsWith(".xtd"))
             {
-                var xtd = new XtdFile(entry);
+                var xtd = new XtdFile(file);
                 xtd.Load(data);
                 return xtd;
             }
-            else if (file.NameLower.EndsWith(".xtl") || file.NameLower.EndsWith(".xtp"))
+            else if (ext.EndsWith(".xcs"))
+            {
+                var xcs = new XcsFile(file);
+                xcs.Load(data);
+                return xcs.GetTexturePack();
+            }
+            else if (ext.EndsWith(".xtl") || ext.EndsWith(".xtp"))
             {
                 var xtl = new XtlFile(entry);
+                xtl.FileInfo = file;
                 xtl.Load(data);
                 return xtl;
             }
@@ -538,10 +627,11 @@ namespace CodeX.Games.MCLA.RPF3
         {
             var fm = Game.GetFileManager() as Rpf3FileManager;
             var dfm = fm?.DataFileMgr;
-            var cityDict = fm.Store.TexturesCityDict;
-            var files = dfm.StreamEntries[Rpf3ResourceType.Generic];
+            var cityDict = fm?.Store?.TexturesCityDict;
+            if (dfm?.StreamEntries == null || !dfm.StreamEntries.TryGetValue(Rpf3ResourceType.Generic, out var files)) return;
             var cache = new Dictionary<string, Texture>(StringComparer.OrdinalIgnoreCase);
 
+            if (drawable?.ShaderGroup == null || drawable.ShaderGroup.Shaders.Items == null) return;
             foreach (var shader in drawable.ShaderGroup.Shaders.Items)
             {
                 if (shader?.Params == null) continue;
@@ -560,7 +650,8 @@ namespace CodeX.Games.MCLA.RPF3
 
         private static void SetGeoShaderTextures(IRsc5DrawableRoot drawable)
         {
-            foreach (var model in drawable?.Lod?.ModelsData.Items)
+            if (drawable?.Lod == null || drawable.Lod.ModelsData.Items == null) return;
+            foreach (var model in drawable.Lod.ModelsData.Items)
             {
                 if (model?.Geometries.Items == null) continue;
                 var geoms = model.Geometries.Items;
@@ -732,7 +823,8 @@ namespace CodeX.Games.MCLA.RPF3
         public void IndexCityFiles()
         {
             XcsFiles ??= [];
-            foreach (var se in StreamEntries[Rpf3ResourceType.Generic])
+            if (!StreamEntries.TryGetValue(Rpf3ResourceType.Generic, out var genericEntries)) return;
+            foreach (var se in genericEntries)
             {
                 var fe = se.Value;
                 if (fe.Parent == null || new JenkHash(fe.Parent.Name) != 0x45A0781) continue; //sc
@@ -745,7 +837,7 @@ namespace CodeX.Games.MCLA.RPF3
 
         public XctFile GetSectorBounds()
         {
-            if (StreamEntries[Rpf3ResourceType.Generic].TryGetValue(0x3CDD416, out var entry)) //city.xct
+            if (StreamEntries.TryGetValue(Rpf3ResourceType.Generic, out var generic) && generic.TryGetValue(0x3CDD416, out var entry)) //city.xct
             {
                 var data = this.FileManager.EnsureFileData(entry, null);
                 var xct = new XctFile(entry);
@@ -757,7 +849,7 @@ namespace CodeX.Games.MCLA.RPF3
 
         public XmdFile LoadMapLod()
         {
-            if (StreamEntries[Rpf3ResourceType.Generic].TryGetValue(0xA6E77868, out var entry)) //lod.xmd
+            if (StreamEntries.TryGetValue(Rpf3ResourceType.Generic, out var generic) && generic.TryGetValue(0xA6E77868, out var entry)) //lod.xmd
             {
                 var data = this.FileManager.EnsureFileData(entry, null);
                 var xmd = this.FileManager.LoadPiecePack(entry, data, true) as XmdFile;
@@ -810,22 +902,35 @@ namespace CodeX.Games.MCLA.RPF3
         {
             Core.Engine.Console.Write("Rpf3FileManager", "Building MCLA startup cache");
 
-            var bmp = FileMan.DataFileMgr.StreamEntries[Rpf3ResourceType.Generic];
+            if (FileMan?.DataFileMgr?.StreamEntries == null ||
+                !FileMan.DataFileMgr.StreamEntries.TryGetValue(Rpf3ResourceType.Generic, out var bmp))
+            {
+                SerializeItems(bw, []);
+                return;
+            }
+
             var textureItemsSet = new HashSet<Rpf3TextureStoreItem>();
 
             var lodTxds = bmp.Where(e => e.Key == 0x5674B600 || e.Key == 0x5DDDB21D).Select(e => e.Value).ToList(); //lod_0.xtd & common.xtd
             foreach (var txd in lodTxds)
             {
-                var lodTxp = FileMan.LoadTexturePack(txd);
-                foreach (var tex in lodTxp.Textures)
+                try
                 {
-                    var item = new Rpf3TextureStoreItem()
+                    var lodTxp = FileMan.LoadTexturePack(txd);
+                    if (lodTxp?.Textures != null)
                     {
-                        Texture = tex.Key,
-                        FileHash = txd.NameOffset
-                    };
-                    textureItemsSet.Add(item);
+                        foreach (var tex in lodTxp.Textures)
+                        {
+                            var item = new Rpf3TextureStoreItem()
+                            {
+                                Texture = tex.Key,
+                                FileHash = txd.NameOffset
+                            };
+                            textureItemsSet.Add(item);
+                        }
+                    }
                 }
+                catch { }
             }
 
             Parallel.ForEach(bmp, kv =>
@@ -834,31 +939,34 @@ namespace CodeX.Games.MCLA.RPF3
                 if (entry == null) return;
                 if (!entry.NameLower.EndsWith(".xcs")) return;
 
-                var pack = (XcsFile)FileMan.LoadPiecePack(entry);
-                if (pack != null)
+                try
                 {
-                    var localBag = new ConcurrentBag<Rpf3TextureStoreItem>();
-                    foreach (var p in pack.Pieces.Values)
+                    if (FileMan.LoadPiecePack(entry) is XcsFile pack && pack.Pieces != null)
                     {
-                        foreach (var tex in p?.TexturePack?.Textures ?? Enumerable.Empty<KeyValuePair<string, Texture>>())
+                        var localBag = new ConcurrentBag<Rpf3TextureStoreItem>();
+                        foreach (var p in pack.Pieces.Values)
                         {
-                            var item = new Rpf3TextureStoreItem()
+                            foreach (var tex in p?.TexturePack?.Textures ?? Enumerable.Empty<KeyValuePair<string, Texture>>())
                             {
-                                Texture = tex.Key,
-                                FileHash = entry.NameOffset
-                            };
-                            localBag.Add(item);
+                                var item = new Rpf3TextureStoreItem()
+                                {
+                                    Texture = tex.Key,
+                                    FileHash = entry.NameOffset
+                                };
+                                localBag.Add(item);
+                            }
                         }
-                    }
 
-                    lock (textureItemsSet)
-                    {
-                        foreach (var item in localBag)
+                        lock (textureItemsSet)
                         {
-                            textureItemsSet.Add(item);
+                            foreach (var item in localBag)
+                            {
+                                textureItemsSet.Add(item);
+                            }
                         }
                     }
                 }
+                catch { }
             });
             SerializeItems(bw, [.. textureItemsSet]);
         }

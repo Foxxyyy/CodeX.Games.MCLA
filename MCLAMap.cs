@@ -1,4 +1,4 @@
-﻿using CodeX.Core.Engine;
+using CodeX.Core.Engine;
 using CodeX.Core.Numerics;
 using CodeX.Core.Utilities;
 using CodeX.Games.MCLA.Files;
@@ -97,10 +97,10 @@ namespace CodeX.Games.MCLA
             return true;
         }
 
-        protected override bool StreamingUpdate()
+        protected override void StreamingUpdate()
         {
-            if (this.StreamNodes == null) return false;
-            if (!EnabledSetting.GetBool()) return false;
+            if (this.StreamNodes == null) return;
+            if (!EnabledSetting.GetBool()) return;
 
             var helpers = this.StreamHelpers.CurrentSet;
             var nodes = this.StreamNodesPrev;
@@ -172,7 +172,7 @@ namespace CodeX.Games.MCLA
             this.EntityCountStat.SetCounter(ents.Count);
             this.StreamNodes = nodes;
 
-            return true;
+
         }
 
         private static void RecurseAddStreamEntity(Entity e, ref Vector3 spos, HashSet<Entity> ents)

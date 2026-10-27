@@ -1,20 +1,24 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <TargetFramework>net8.0-windows7.0</TargetFramework>
+    <TargetFramework>net9.0-windows7.0</TargetFramework>
+    <UseWindowsForms>true</UseWindowsForms>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>disable</Nullable>
     <Platforms>AnyCPU;x86</Platforms>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <LangVersion>preview</LangVersion>
   </PropertyGroup>
 
   <ItemGroup>
     <PackageReference Include="SharpZipLib" Version="1.4.2" />
+    <PackageReference Include="SharpDX" Version="4.2.0" />
+    <PackageReference Include="SharpDX.Direct3D11" Version="4.2.0" />
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\CodeX.Core\CodeX.Core.csproj" />
-    <ProjectReference Include="..\CodeX.Forms\CodeX.Forms.csproj" />
+    <ProjectReference Include="..\CodeX-main\CodeX.Core\CodeX.Core.csproj" />
+    <ProjectReference Include="..\CodeX-main\CodeX.Forms\CodeX.Forms.csproj" />
   </ItemGroup>
 
   <ItemGroup>

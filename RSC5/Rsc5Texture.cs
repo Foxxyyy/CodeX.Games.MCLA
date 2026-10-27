@@ -1,4 +1,4 @@
-﻿using CodeX.Core.Engine;
+using CodeX.Core.Engine;
 using CodeX.Core.Utilities;
 using CodeX.Games.MCLA.RPF3;
 using SharpDX.Direct3D11;
@@ -75,7 +75,7 @@ namespace CodeX.Games.MCLA.RSC5
         }
     }
 
-    public class Rsc5TextureDictionary : Rsc5BlockBaseMap
+    public class Rsc5TextureDictionary : Rsc5BlockBaseMap, MetaNode
     {
         public override ulong BlockLength => 32;
         public override uint VFT { get; set; } = 0;
@@ -96,11 +96,14 @@ namespace CodeX.Games.MCLA.RSC5
 
             if (Textures.Items != null)
             {
-                var imax = Math.Min(Hashes.Items.Length, Textures.Items.Length);
-                for (int i = 0; i < Textures.Items.Length; i++)
+                var hCount = Hashes.Items?.Length ?? 0;
+                var tCount = Textures.Items.Length;
+                var imax = Math.Min(hCount, tCount);
+                for (int i = 0; i < tCount; i++)
                 {
                     var t = Textures.Items[i];
-                    var h = (i < imax) ? Hashes.Items[i] : 0;
+                    if (t == null) continue;
+                    var h = (i < imax && Hashes.Items != null) ? Hashes.Items[i] : 0;
                     
                     t.Name ??= h.ToString();
                     Dict[h] = t;
@@ -112,9 +115,47 @@ namespace CodeX.Games.MCLA.RSC5
         {
             base.Write(writer);
             writer.WriteUInt32(ParentDictionary);
-            writer.WriteUInt32(UsageCount);
+            writer.WriteUInt32(UsageCount > 0 ? UsageCount : 1);
             writer.WriteArr(Hashes);
             writer.WritePtrArr(Textures);
+        }
+
+        public void Read(MetaNodeReader reader)
+        {
+            var textures = reader.ReadNodeArray<Rsc5Texture>("Textures");
+            if (textures != null)
+            {
+                Build(textures);
+            }
+        }
+
+        public void Write(MetaNodeWriter writer)
+        {
+            writer.WriteUInt32("@version", 0);
+            writer.WriteNodeArray("Textures", Textures.Items);
+        }
+
+        public void Build(IEnumerable<Rsc5Texture> textures)
+        {
+            var list = new List<Tuple<JenkHash, Rsc5Texture>>();
+            Dict.Clear();
+            foreach (var texture in textures)
+            {
+                var cleanName = Path.GetFileNameWithoutExtension(texture.Name.Replace(".dds", "").ToLowerInvariant());
+                var hash = JenkHash.GenHash(cleanName + ".dds");
+                list.Add(new Tuple<JenkHash, Rsc5Texture>(hash, texture));
+                Dict[hash] = texture;
+            }
+            int count = list.Count;
+            var texArr = new Rsc5Texture[count];
+            var hashArr = new JenkHash[count];
+            for (int i = 0; i < count; i++)
+            {
+                hashArr[i] = list[i].Item1;
+                texArr[i] = list[i].Item2;
+            }
+            Hashes = new Rsc5Arr<JenkHash>(hashArr);
+            Textures = new Rsc5PtrArr<Rsc5Texture>(texArr);
         }
     }
 
@@ -137,6 +178,47 @@ namespace CodeX.Games.MCLA.RSC5
             base.Write(writer);
             writer.WritePtr(Texture1);
             writer.WritePtr(Texture2);
+        }
+    }
+
+    public class Rsc5D3DTexture : Rsc5BlockMap
+    {
+        public override ulong BlockLength => 64;
+        public uint[] D3DHeader { get; set; } = new uint[16];
+        public Rsc5TextureData TextureData { get; set; }
+        public Rsc5TextureFormat Format { get; set; }
+
+        public Rsc5D3DTexture() { }
+
+        public Rsc5D3DTexture(uint[] header, Rsc5TextureData data, Rsc5TextureFormat format)
+        {
+            if (header != null && header.Length >= 16)
+            {
+                D3DHeader = (uint[])header.Clone();
+            }
+            else
+            {
+                D3DHeader = new uint[16];
+            }
+            TextureData = data;
+            Format = format;
+        }
+
+        public override void Read(Rsc5DataReader reader)
+        {
+            D3DHeader = reader.ReadUInt32Arr(16);
+        }
+
+        public override void Write(Rsc5DataWriter writer)
+        {
+            if (TextureData != null)
+            {
+                writer.AddPointerRef(TextureData, writer.Data, 0x20, (ulong)Format);
+            }
+            for (int i = 0; i < 16; i++)
+            {
+                writer.WriteUInt32(D3DHeader[i]);
+            }
         }
     }
 
@@ -172,13 +254,15 @@ namespace CodeX.Games.MCLA.RSC5
             ColorOfsG = reader.ReadSingle(); //0.0f
             ColorOfsB = reader.ReadSingle(); //0.0f
 
+            D3DHeaderPosition = D3DBaseTexture.Item.FilePosition;
             reader.Position = D3DBaseTexture.Item.FilePosition + 0x20;
             var d3dValue = reader.ReadInt32();
-            reader.Position = (ulong)Rpf3Crypto.GetBaseAdressFromDirect3D(d3dValue, reader);
+            DataOffset = (ulong)Rpf3Crypto.GetBaseAdressFromDirect3D(d3dValue, reader);
+            reader.Position = DataOffset;
 
             D3DValue = (uint)d3dValue;
             var hp = reader.Position;
-            reader.Position = D3DBaseTexture.Item.FilePosition;
+            reader.Position = D3DHeaderPosition;
             D3DHeader = reader.ReadUInt32Arr(16);
             reader.Position = hp;
             Format = ConvertToEngineFormat((Rsc5TextureFormat)(d3dValue & byte.MaxValue));
@@ -191,8 +275,42 @@ namespace CodeX.Games.MCLA.RSC5
 
         public override void Write(Rsc5DataWriter writer)
         {
+            var swizzled = (Data != null) ? Rpf3Crypto.SwizzleXbox360Data(Data, Width, Height, Format) : [];
+            var rsc5Format = ConvertToRsc5Format(Format);
+            var texData = new Rsc5TextureData
+            {
+                BlockLength = (ulong)(swizzled?.Length ?? 0),
+                Data = swizzled ?? []
+            };
+
+            var d3d = new uint[16];
+            if (D3DHeader != null && D3DHeader.Length >= 16)
+            {
+                Array.Copy(D3DHeader, d3d, 16);
+            }
+            d3d[7] = (d3d[7] & ~(0x1FFu << 22)) | (((uint)(Width >> 5) & 0x1FFu) << 22);
+            d3d[8] = (uint)rsc5Format;
+            d3d[9] = (d3d[9] & ~0x03FFFFFFu) | ((uint)(Width - 1) & 0x1FFFu) | (((uint)(Height - 1) & 0x1FFFu) << 13);
+            d3d[11] = (d3d[11] & ~(0xFu << 6)) | ((uint)(MipLevels & 0xFu) << 6);
+
+            var d3dBlock = new Rsc5D3DTexture(d3d, texData, rsc5Format);
+            D3DBaseTexture = new Rsc5Ptr<Rsc5BlockMap>
+            {
+                Item = d3dBlock
+            };
+
             base.Write(writer);
-            throw new NotImplementedException();
+            writer.WriteUInt16(Stride);
+            writer.WriteByte((byte)TextureType);
+            writer.WriteByte(MipLevels);
+            writer.WriteSingle(ColorExpR);
+            writer.WriteSingle(ColorExpG);
+            writer.WriteSingle(ColorExpB);
+            writer.WriteSingle(ColorOfsR);
+            writer.WriteSingle(ColorOfsG);
+            writer.WriteSingle(ColorOfsB);
+
+            writer.WriteBlock(texData);
         }
 
         public enum Rsc5TextureType
@@ -237,6 +355,68 @@ namespace CodeX.Games.MCLA.RSC5
             };
         }
 
+        public static Rsc5Texture Create(Texture t)
+        {
+            var tex = new Rsc5Texture
+            {
+                Name = t.Name,
+                Sampler = t.Sampler.Value != 0 ? t.Sampler : TextureSampler.AnisotropicWrap,
+                Format = t.Format,
+                Width = t.Width,
+                Height = t.Height,
+                Depth = t.Depth,
+                Stride = (ushort)t.Stride,
+                MipLevels = (byte)(t.MipLevels > 0 ? t.MipLevels : 1),
+                Data = t.Data,
+                TextureType = Rsc5TextureType.Normal,
+                ColorExpR = 1.0f,
+                ColorExpG = 1.0f,
+                ColorExpB = 1.0f,
+                ColorOfsR = 0.0f,
+                ColorOfsG = 0.0f,
+                ColorOfsB = 0.0f,
+                Unknown_4h = 1,
+                IsModified = true
+            };
+            if (tex.Stride == 0)
+            {
+                tex.Stride = (ushort)(tex.Width * (tex.Format == TextureFormat.BC1 ? 2 : 4));
+            }
+            return tex;
+        }
+
+        public override void Read(MetaNodeReader reader)
+        {
+            base.Read(reader);
+            var cleanName = Name ?? "";
+            if (cleanName.EndsWith(".dds", StringComparison.OrdinalIgnoreCase))
+            {
+                cleanName = cleanName[..^4];
+            }
+            cleanName = Path.GetFileName(cleanName);
+            var dds = reader.ReadExternal(cleanName + ".dds");
+            if (dds != null)
+            {
+                var tex = DDSIO.GetTexture(dds);
+                if (tex != null)
+                {
+                    Width = tex.Width;
+                    Height = tex.Height;
+                    Format = tex.Format;
+                    MipLevels = (byte)(tex.MipLevels > 0 ? tex.MipLevels : 1);
+                    Data = tex.Data;
+                    Stride = (ushort)(tex.Stride > 0 ? tex.Stride : tex.Width * (tex.Format == TextureFormat.BC1 ? 2 : 4));
+                    Sampler = tex.Sampler.Value != 0 ? tex.Sampler : TextureSampler.AnisotropicWrap;
+                    IsModified = true;
+                }
+            }
+        }
+
+        public override void Write(MetaNodeWriter writer)
+        {
+            base.Write(writer);
+        }
+
         public override string ToString()
         {
             return "Texture: " + Width.ToString() + "x" + Height.ToString() + ": " + Name;
@@ -257,8 +437,14 @@ namespace CodeX.Games.MCLA.RSC5
         public Rsc5Str TextureName { get; set; }
         public Rsc5Ptr<Rsc5BlockMap> D3DBaseTexture { get; set; }
 
+        public ulong DataOffset { get; set; }
+        public ulong D3DHeaderPosition { get; set; }
+        public ulong TexturePosition { get; set; }
+        public bool IsModified { get; set; }
+
         public virtual void Read(Rsc5DataReader reader)
         {
+            TexturePosition = reader.Position;
             VFT = reader.ReadUInt32();
             Unknown_4h = reader.ReadUInt32();
             Unknown_8h = reader.ReadUInt32();
@@ -280,7 +466,48 @@ namespace CodeX.Games.MCLA.RSC5
 
         public virtual void Write(Rsc5DataWriter writer)
         {
-            throw new NotImplementedException();
+            if (string.IsNullOrEmpty(Name))
+            {
+                Name = "texture";
+            }
+            var nameToSave = Name.EndsWith(".dds") ? Name : Name + ".dds";
+            TextureName = new Rsc5Str(nameToSave);
+
+            writer.WriteUInt32(VFT);
+            writer.WriteUInt32(Unknown_4h);
+            writer.WriteUInt32(Unknown_8h);
+            writer.WriteUInt32(Unknown_Ch);
+            writer.WriteUInt32(Unknown_10h);
+            writer.WriteUInt32(Unknown_14h);
+            writer.WriteStr(TextureName);
+            writer.WritePtr(D3DBaseTexture);
+            writer.WriteUInt16(Width);
+            writer.WriteUInt16(Height);
+        }
+
+        public override void Read(MetaNodeReader reader)
+        {
+            Name = reader.ReadString("@name");
+            if (string.IsNullOrEmpty(Name))
+            {
+                Name = reader.ReadString("Name");
+            }
+        }
+
+        public override void Write(MetaNodeWriter writer)
+        {
+            var cleanName = Name ?? "";
+            if (cleanName.EndsWith(".dds", StringComparison.OrdinalIgnoreCase))
+            {
+                cleanName = cleanName[..^4];
+            }
+            cleanName = Path.GetFileName(cleanName);
+            writer.WriteString("@name", cleanName);
+            var dds = (Data != null) ? DDSIO.GetDDSFile(this) : null;
+            if (dds != null)
+            {
+                writer.WriteExternal(cleanName + ".dds", dds);
+            }
         }
 
         public override string ToString()
